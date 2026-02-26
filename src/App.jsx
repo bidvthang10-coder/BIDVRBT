@@ -146,7 +146,14 @@ const DEFAULT_DEPARTMENTS = [
 function sumMetrics(dailyData, deptId, monthKey, memberId, dayKeys, metricKey) {
   let total = 0;
   dayKeys.forEach(dk => {
-    total += Number(dailyData[deptId]?.[monthKey]?.[memberId]?.[dk]?.[metricKey] || 0);
+    total += Number(dailyData[deptId]?.[monthKey]?.[memberId]?.[dk]?.[metricKey]?.th || 0);
+  });
+  return total;
+}
+function sumKH(dailyData, deptId, monthKey, memberId, dayKeys, metricKey) {
+  let total = 0;
+  dayKeys.forEach(dk => {
+    total += Number(dailyData[deptId]?.[monthKey]?.[memberId]?.[dk]?.[metricKey]?.kh || 0);
   });
   return total;
 }
@@ -207,18 +214,24 @@ function SyncBadge({ online, saving, lastSync }) {
 // Bảng báo cáo tổng hợp (dùng chung cho ngày/tuần/tháng)
 function ReportTable({ dept, metrics, members, dayKeys, dailyData, monthKey, deptColor, title, subtitle }) {
   const deptId = dept.id;
-  // Tổng toàn phòng
   const deptTotals = useMemo(() => {
     const t = {};
     metrics.forEach(m => {
-      let sum = 0;
-      members.forEach(mb => { sum += sumMetrics(dailyData, deptId, monthKey, mb.id, dayKeys, m.key); });
-      t[m.key] = sum;
+      let th = 0, kh = 0;
+      members.forEach(mb => {
+        th += sumMetrics(dailyData, deptId, monthKey, mb.id, dayKeys, m.key);
+        kh += sumKH(dailyData, deptId, monthKey, mb.id, dayKeys, m.key);
+      });
+      t[m.key] = { th, kh };
     });
     return t;
   }, [dailyData, dayKeys, monthKey]);
 
-  const grandTotal = Object.values(deptTotals).reduce((a, b) => a + b, 0);
+  const grandTH = Object.values(deptTotals).reduce((a, b) => a + b.th, 0);
+  const grandKH = Object.values(deptTotals).reduce((a, b) => a + b.kh, 0);
+  const grandPct = grandKH > 0 ? Math.round(grandTH / grandKH * 100) : 0;
+  const pctColor = (r) => r >= 100 ? "#057a55" : r >= 80 ? "#c27803" : "#c81e1e";
+  const pctBg    = (r) => r >= 100 ? "#def7ec" : r >= 80 ? "#fdf6b2" : "#fde8e8";
 
   return (
     <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
@@ -227,46 +240,73 @@ function ReportTable({ dept, metrics, members, dayKeys, dailyData, monthKey, dep
           <div style={{ fontWeight: 700, fontSize: 15 }}>{title}</div>
           <div style={{ color: "#6b7280", fontSize: 12, marginTop: 2 }}>{subtitle}</div>
         </div>
-        <div style={{ background: deptColor, color: "#fff", padding: "4px 14px", borderRadius: 20, fontSize: 13, fontWeight: 700 }}>
-          Tổng: {grandTotal}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: 12, color: "#6b7280" }}>KH: {grandKH} · TH: {grandTH}</span>
+          <span style={{ background: pctBg(grandPct), color: pctColor(grandPct), padding: "3px 12px", borderRadius: 20, fontSize: 13, fontWeight: 700 }}>
+            {grandPct}%
+          </span>
         </div>
       </div>
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ background: "#f9fafb" }}>
-              <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, color: "#374151", borderBottom: "1px solid #e5e7eb", minWidth: 190 }}>Chỉ tiêu</th>
-              <th style={{ padding: "10px 10px", textAlign: "center", fontWeight: 600, color: "#374151", borderBottom: "1px solid #e5e7eb", fontSize: 11 }}>Đơn vị</th>
+              <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 600, color: "#374151", borderBottom: "1px solid #e5e7eb", minWidth: 170 }}>Chỉ tiêu</th>
               {members.map(m => (
-                <th key={m.id} style={{ padding: "10px 10px", textAlign: "center", borderBottom: "1px solid #e5e7eb", minWidth: 110 }}>
+                <th key={m.id} style={{ padding: "8px 6px", textAlign: "center", borderBottom: "1px solid #e5e7eb", minWidth: 150 }}>
                   <div style={{ fontWeight: 700, fontSize: 12 }}>{m.name.split(" ").slice(-2).join(" ")}</div>
-                  <Badge role={m.role} />
+                  <div style={{ marginTop: 2 }}><Badge role={m.role} /></div>
+                  <div style={{ display: "flex", justifyContent: "center", gap: 4, color: "#9ca3af", fontSize: 10, marginTop: 4 }}>
+                    <span style={{ minWidth: 36, textAlign: "center" }}>KH</span>
+                    <span style={{ minWidth: 36, textAlign: "center" }}>TH</span>
+                    <span style={{ minWidth: 36, textAlign: "center" }}>%HT</span>
+                  </div>
                 </th>
               ))}
-              <th style={{ padding: "10px 10px", textAlign: "center", borderBottom: "1px solid #e5e7eb", background: "#eff6ff", minWidth: 90 }}>
-                <div style={{ fontWeight: 700, color: "#1e40af", fontSize: 12 }}>TỔNG</div>
+              <th style={{ padding: "8px 6px", textAlign: "center", borderBottom: "1px solid #e5e7eb", background: "#eff6ff", minWidth: 150 }}>
+                <div style={{ fontWeight: 700, color: "#1e40af", fontSize: 12 }}>TỔNG PHÒNG</div>
+                <div style={{ display: "flex", justifyContent: "center", gap: 4, color: "#9ca3af", fontSize: 10, marginTop: 20 }}>
+                  <span style={{ minWidth: 36, textAlign: "center" }}>KH</span>
+                  <span style={{ minWidth: 36, textAlign: "center" }}>TH</span>
+                  <span style={{ minWidth: 36, textAlign: "center" }}>%HT</span>
+                </div>
               </th>
             </tr>
           </thead>
           <tbody>
             {metrics.map((metric, mi) => {
-              const dTotal = deptTotals[metric.key] || 0;
+              const { th: dTH, kh: dKH } = deptTotals[metric.key] || { th: 0, kh: 0 };
+              const dPct = dKH > 0 ? Math.round(dTH / dKH * 100) : 0;
               return (
                 <tr key={metric.key} style={{ background: mi % 2 === 0 ? "#fff" : "#fafafa", borderBottom: "1px solid #f3f4f6" }}>
-                  <td style={{ padding: "10px 16px", fontWeight: 500, color: "#374151" }}>
-                    {metric.label}
+                  <td style={{ padding: "10px 14px" }}>
+                    <div style={{ fontWeight: 500, color: "#374151", fontSize: 12 }}>{metric.label}</div>
+                    <div style={{ fontSize: 10, color: "#9ca3af" }}>{metric.unit}</div>
                   </td>
-                  <td style={{ padding: "8px 10px", textAlign: "center", color: "#9ca3af", fontSize: 11 }}>{metric.unit}</td>
                   {members.map(mb => {
-                    const val = sumMetrics(dailyData, deptId, monthKey, mb.id, dayKeys, metric.key);
+                    const th = sumMetrics(dailyData, deptId, monthKey, mb.id, dayKeys, metric.key);
+                    const kh = sumKH(dailyData, deptId, monthKey, mb.id, dayKeys, metric.key);
+                    const pct = kh > 0 ? Math.round(th / kh * 100) : 0;
                     return (
-                      <td key={mb.id} style={{ padding: "8px 10px", textAlign: "center" }}>
-                        <div style={{ fontSize: 18, fontWeight: 800, color: val > 0 ? deptColor : "#d1d5db" }}>{val}</div>
+                      <td key={mb.id} style={{ padding: "8px 6px", textAlign: "center" }}>
+                        <div style={{ display: "flex", gap: 4, justifyContent: "center", alignItems: "center" }}>
+                          <span style={{ minWidth: 36, color: "#374151", fontSize: 13 }}>{kh || "-"}</span>
+                          <span style={{ minWidth: 36, fontWeight: 700, color: th > 0 ? deptColor : "#d1d5db", fontSize: 14 }}>{th || "-"}</span>
+                          <span style={{ minWidth: 36, fontWeight: 700, fontSize: 11, color: pctColor(pct), background: kh > 0 ? pctBg(pct) : "transparent", padding: "1px 4px", borderRadius: 6 }}>
+                            {kh > 0 ? pct + "%" : "-"}
+                          </span>
+                        </div>
                       </td>
                     );
                   })}
-                  <td style={{ padding: "8px 10px", textAlign: "center", background: "#eff6ff" }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: dTotal > 0 ? "#1e40af" : "#d1d5db" }}>{dTotal}</div>
+                  <td style={{ padding: "8px 6px", textAlign: "center", background: "#eff6ff" }}>
+                    <div style={{ display: "flex", gap: 4, justifyContent: "center", alignItems: "center" }}>
+                      <span style={{ minWidth: 36, color: "#374151", fontSize: 13 }}>{dKH || "-"}</span>
+                      <span style={{ minWidth: 36, fontWeight: 800, color: dTH > 0 ? "#1e40af" : "#d1d5db", fontSize: 14 }}>{dTH || "-"}</span>
+                      <span style={{ minWidth: 36, fontWeight: 700, fontSize: 11, color: pctColor(dPct), background: dKH > 0 ? pctBg(dPct) : "transparent", padding: "1px 4px", borderRadius: 6 }}>
+                        {dKH > 0 ? dPct + "%" : "-"}
+                      </span>
+                    </div>
                   </td>
                 </tr>
               );
@@ -392,7 +432,8 @@ export default function App() {
     const init = {};
     dept.metrics.forEach(m => {
       const existing = dailyData[activeDept]?.[selectedMonth]?.[memberId]?.[dk]?.[m.key];
-      init[m.key] = existing !== undefined ? String(existing) : "";
+      init[m.key + "_kh"] = existing?.kh !== undefined ? String(existing.kh) : "";
+      init[m.key + "_th"] = existing?.th !== undefined ? String(existing.th) : "";
     });
     setEntryForm(init);
   }
@@ -411,7 +452,10 @@ export default function App() {
     if (!updated[activeDept][selectedMonth][entryMember]) updated[activeDept][selectedMonth][entryMember] = {};
     if (!updated[activeDept][selectedMonth][entryMember][dk]) updated[activeDept][selectedMonth][entryMember][dk] = {};
     dept.metrics.forEach(m => {
-      updated[activeDept][selectedMonth][entryMember][dk][m.key] = Number(entryForm[m.key]) || 0;
+      updated[activeDept][selectedMonth][entryMember][dk][m.key] = {
+        kh: Number(entryForm[m.key + "_kh"]) || 0,
+        th: Number(entryForm[m.key + "_th"]) || 0,
+      };
     });
     setShowEntryModal(false);
     await writeDailyData(updated);
@@ -846,17 +890,48 @@ export default function App() {
               <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14, background: "#f8fafc", padding: "8px 12px", borderRadius: 8 }}>
                 📅 Đang nhập: <strong>{entryWeek} · {entryDay}</strong> · {monthLabel}
               </div>
-              {dept.metrics.map(metric => (
-                <div key={metric.key} style={{ marginBottom: 14 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: "#374151", marginBottom: 5 }}>
-                    {metric.label} <span style={{ color: "#9ca3af", fontWeight: 400, fontSize: 12 }}>({metric.unit})</span>
+              {/* Header cột */}
+              <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", minWidth: 160, flex: 2 }}>Chỉ tiêu</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#1e40af", flex: 1, textAlign: "center" }}>Kế hoạch</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#057a55", flex: 1, textAlign: "center" }}>Thực hiện</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#7c3aed", flex: 1, textAlign: "center" }}>% HT</div>
+              </div>
+              {dept.metrics.map(metric => {
+                const kh = Number(entryForm[metric.key + "_kh"]) || 0;
+                const th = Number(entryForm[metric.key + "_th"]) || 0;
+                const pct = kh > 0 ? Math.round(th / kh * 100) : (th > 0 ? 100 : 0);
+                const pctColor = pct >= 100 ? "#057a55" : pct >= 80 ? "#c27803" : "#c81e1e";
+                return (
+                  <div key={metric.key} style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 5 }}>
+                      {metric.label} <span style={{ color: "#9ca3af", fontWeight: 400 }}>({metric.unit})</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                      {/* Kế hoạch */}
+                      <div style={{ flex: 1 }}>
+                        <input type="number" min="0"
+                          value={entryForm[metric.key + "_kh"] || ""}
+                          onChange={e => setEntryForm(p => ({ ...p, [metric.key + "_kh"]: e.target.value }))}
+                          style={{ width: "100%", padding: "8px 10px", border: "1px solid #bfdbfe", borderRadius: 8, fontSize: 14, boxSizing: "border-box", background: "#eff6ff", color: "#1e40af", fontWeight: 600, textAlign: "center" }}
+                          placeholder="0" />
+                      </div>
+                      {/* Thực hiện */}
+                      <div style={{ flex: 1 }}>
+                        <input type="number" min="0"
+                          value={entryForm[metric.key + "_th"] || ""}
+                          onChange={e => setEntryForm(p => ({ ...p, [metric.key + "_th"]: e.target.value }))}
+                          style={{ width: "100%", padding: "8px 10px", border: "1px solid #a7f3d0", borderRadius: 8, fontSize: 14, boxSizing: "border-box", background: "#f0fdf4", color: "#057a55", fontWeight: 600, textAlign: "center" }}
+                          placeholder="0" />
+                      </div>
+                      {/* % HT */}
+                      <div style={{ flex: 1, padding: "8px 10px", background: "#f5f3ff", borderRadius: 8, textAlign: "center", fontWeight: 700, fontSize: 14, color: pctColor }}>
+                        {kh > 0 || th > 0 ? pct + "%" : "-"}
+                      </div>
+                    </div>
                   </div>
-                  <input type="number" min="0" value={entryForm[metric.key] || ""}
-                    onChange={e => setEntryForm(p => ({ ...p, [metric.key]: e.target.value }))}
-                    style={{ width: "100%", padding: "9px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 15, boxSizing: "border-box" }}
-                    placeholder="0" />
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div style={{ padding: "14px 24px", borderTop: "1px solid #e5e7eb", display: "flex", gap: 10, justifyContent: "flex-end" }}>
