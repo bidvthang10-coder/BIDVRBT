@@ -938,7 +938,7 @@ export default function App() {
               <button onClick={() => setShowEntryModal(false)} style={{ padding: "10px 20px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>Hủy</button>
               <button onClick={saveEntry} disabled={saving}
                 style={{ padding: "10px 24px", border: "none", borderRadius: 8, background: deptColor, color: "#fff", cursor: saving ? "not-allowed" : "pointer", fontSize: 14, fontWeight: 700, opacity: saving ? 0.7 : 1 }}>
-                {saving ? "Đang lưu..." : "🔥 Lưu lên Firebase"}
+                {saving ? "Đang lưu..." : "💾 Lưu"}
               </button>
             </div>
           </div>
