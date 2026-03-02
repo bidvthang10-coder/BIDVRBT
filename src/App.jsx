@@ -645,7 +645,7 @@ export default function App() {
                   <div key={role} style={{ marginBottom: 28 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
                       <div style={{ background: roleColor, color: "#fff", fontWeight: 800, fontSize: 14, padding: "4px 18px", borderRadius: 20 }}>{role}</div>
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>{role === "LS" ? "Lãnh sự / Tín dụng" : "Ủy ban / Giao dịch"}</div>
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>{role === "LS" ? "Vị trí LS" : "Vị trí UB"}</div>
                       <div style={{ color: "#6b7280", fontSize: 13 }}>· {roleMembers.length} nhân viên · {periodLabel}</div>
                       {roleKH > 0 && <span style={{ marginLeft: "auto", background: pctBg(rolePct), color: pctColor(rolePct), fontWeight: 800, fontSize: 13, padding: "4px 16px", borderRadius: 20 }}>{rolePct}%</span>}
                     </div>
