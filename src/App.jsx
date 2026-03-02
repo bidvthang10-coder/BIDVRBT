@@ -339,6 +339,7 @@ export default function App() {
   const [selectedDay, setSelectedDay]         = useState("Thứ 2");
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [selectedMember, setSelectedMember]   = useState(null);
+  const [summaryMode, setSummaryMode]         = useState("month");
 
   // Entry modal
   const [showEntryModal, setShowEntryModal] = useState(false);
@@ -548,6 +549,7 @@ export default function App() {
             { key: "daily",   label: "📋 Báo cáo ngày"  },
             { key: "weekly",  label: "📊 Báo cáo tuần"  },
             { key: "monthly", label: "📈 Báo cáo tháng" },
+            { key: "summary", label: "🏢 Tổng hợp"      },
             { key: "members", label: "👥 Thành viên"    },
             { key: "entry",   label: "✏️ Nhập liệu"     },
           ].map(t => (
@@ -732,6 +734,224 @@ export default function App() {
               title={`Lũy kế theo chỉ tiêu · ${monthLabel}`}
               subtitle={dept.fullName}
             />
+          </div>
+        )}
+
+        {/* ── TỔNG HỢP TẤT CẢ ĐƠN VỊ ── */}
+        {activeTab === "summary" && (
+          <div>
+            {/* Chọn chế độ xem */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 16, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 4, width: "fit-content", flexWrap: "wrap" }}>
+              {[
+                { key: "month", label: "📈 Theo tháng" },
+                { key: "week",  label: "📊 Theo tuần"  },
+                { key: "day",   label: "📋 Theo ngày"  },
+              ].map(m => (
+                <button key={m.key} onClick={() => setSummaryMode(m.key)}
+                  style={{ background: summaryMode === m.key ? "#0f172a" : "transparent", color: summaryMode === m.key ? "#fff" : "#6b7280", border: "none", cursor: "pointer", borderRadius: 7, padding: "7px 16px", fontSize: 13, fontWeight: 600, transition: "all 0.2s" }}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Chọn tuần/ngày nếu cần */}
+            {summaryMode === "week" && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                {WEEKS.map(w => (
+                  <button key={w} onClick={() => setSelectedWeek(w)}
+                    style={{ background: selectedWeek === w ? "#0f172a" : "#fff", color: selectedWeek === w ? "#fff" : "#374151", border: `1px solid ${selectedWeek === w ? "#0f172a" : "#e5e7eb"}`, borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                    {w}
+                  </button>
+                ))}
+              </div>
+            )}
+            {summaryMode === "day" && (
+              <div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                  {WEEKS.map(w => (
+                    <button key={w} onClick={() => setSelectedWeek(w)}
+                      style={{ background: selectedWeek === w ? "#0f172a" : "#f3f4f6", color: selectedWeek === w ? "#fff" : "#374151", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                      {w}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                  {DAYS_OF_WEEK.map((d, i) => (
+                    <button key={d} onClick={() => setSelectedDay(d)}
+                      style={{ background: selectedDay === d ? "#0f172a" : "#f3f4f6", color: selectedDay === d ? "#fff" : "#374151", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                      {DAY_SHORT[i]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Stat cards tổng tất cả đơn vị */}
+            {(() => {
+              const allDayKeys = summaryMode === "month" ? currentMonthDays : summaryMode === "week" ? currentWeekDays : [currentDayKey];
+              let totalKH = 0, totalTH = 0;
+              departments.forEach(d => {
+                d.members.forEach(mb => {
+                  d.metrics.forEach(m => {
+                    totalKH += sumKH(dailyData, d.id, selectedMonth, mb.id, allDayKeys, m.key);
+                    totalTH += sumMetrics(dailyData, d.id, selectedMonth, mb.id, allDayKeys, m.key);
+                  });
+                });
+              });
+              const pct = totalKH > 0 ? Math.round(totalTH / totalKH * 100) : 0;
+              const pctColor = pct >= 100 ? "#057a55" : pct >= 80 ? "#c27803" : "#c81e1e";
+              return (
+                <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+                  <StatCard label="Tổng KH toàn hệ thống" value={totalKH} sub={monthLabel} color="#1e40af" />
+                  <StatCard label="Tổng TH toàn hệ thống" value={totalTH} sub={summaryMode === "month" ? "Lũy kế tháng" : summaryMode === "week" ? `Lũy kế ${selectedWeek}` : `${selectedWeek} · ${selectedDay}`} color="#057a55" />
+                  <StatCard label="% Hoàn thành" value={totalKH > 0 ? pct + "%" : "-"} sub="Toàn hệ thống" color={pctColor} />
+                  <StatCard label="Số đơn vị" value={departments.length} sub="Phòng ban" />
+                </div>
+              );
+            })()}
+
+            {/* Bảng tổng hợp từng đơn vị */}
+            {(() => {
+              const allDayKeys = summaryMode === "month" ? currentMonthDays : summaryMode === "week" ? currentWeekDays : [currentDayKey];
+              const periodLabel = summaryMode === "month" ? monthLabel : summaryMode === "week" ? selectedWeek : `${selectedWeek} · ${selectedDay}`;
+              return (
+                <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", marginBottom: 20 }}>
+                  <div style={{ padding: "14px 20px", borderBottom: "1px solid #f3f4f6" }}>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>So sánh hiệu suất các đơn vị · {periodLabel}</div>
+                    <div style={{ color: "#6b7280", fontSize: 12 }}>{monthLabel}</div>
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ background: "#f9fafb" }}>
+                          <th style={{ padding: "10px 16px", textAlign: "left", borderBottom: "1px solid #e5e7eb", fontWeight: 600, minWidth: 160 }}>Đơn vị</th>
+                          <th style={{ padding: "10px 10px", textAlign: "center", borderBottom: "1px solid #e5e7eb", fontWeight: 600, minWidth: 70 }}>NV</th>
+                          <th style={{ padding: "10px 10px", textAlign: "center", borderBottom: "1px solid #e5e7eb", fontWeight: 600, color: "#1e40af", minWidth: 80 }}>KH</th>
+                          <th style={{ padding: "10px 10px", textAlign: "center", borderBottom: "1px solid #e5e7eb", fontWeight: 600, color: "#057a55", minWidth: 80 }}>TH</th>
+                          <th style={{ padding: "10px 10px", textAlign: "center", borderBottom: "1px solid #e5e7eb", fontWeight: 600, color: "#7c3aed", minWidth: 80 }}>% HT</th>
+                          <th style={{ padding: "10px 10px", textAlign: "left", borderBottom: "1px solid #e5e7eb", fontWeight: 600, color: "#6b7280", minWidth: 200 }}>Tiến độ</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {departments.map((d, di) => {
+                          let dKH = 0, dTH = 0;
+                          d.members.forEach(mb => d.metrics.forEach(m => {
+                            dKH += sumKH(dailyData, d.id, selectedMonth, mb.id, allDayKeys, m.key);
+                            dTH += sumMetrics(dailyData, d.id, selectedMonth, mb.id, allDayKeys, m.key);
+                          }));
+                          const pct = dKH > 0 ? Math.round(dTH / dKH * 100) : 0;
+                          const pctColor = pct >= 100 ? "#057a55" : pct >= 80 ? "#c27803" : "#c81e1e";
+                          const pctBg    = pct >= 100 ? "#def7ec" : pct >= 80 ? "#fdf6b2" : "#fde8e8";
+                          const barPct   = dKH > 0 ? Math.min(pct, 100) : 0;
+                          return (
+                            <tr key={d.id} style={{ background: di % 2 === 0 ? "#fff" : "#fafafa", borderBottom: "1px solid #f3f4f6" }}>
+                              <td style={{ padding: "12px 16px" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+                                  <div>
+                                    <div style={{ fontWeight: 700, fontSize: 13 }}>{d.name}</div>
+                                    <div style={{ fontSize: 11, color: "#9ca3af" }}>{d.fullName}</div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td style={{ padding: "8px 10px", textAlign: "center", color: "#6b7280", fontSize: 13 }}>{d.members.length}</td>
+                              <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                                <span style={{ fontWeight: 700, color: "#1e40af", fontSize: 15 }}>{dKH || "-"}</span>
+                              </td>
+                              <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                                <span style={{ fontWeight: 700, color: dTH > 0 ? d.color : "#d1d5db", fontSize: 15 }}>{dTH || "-"}</span>
+                              </td>
+                              <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                                {dKH > 0 ? (
+                                  <span style={{ background: pctBg, color: pctColor, fontWeight: 700, fontSize: 13, padding: "3px 10px", borderRadius: 20 }}>{pct}%</span>
+                                ) : <span style={{ color: "#d1d5db" }}>-</span>}
+                              </td>
+                              <td style={{ padding: "8px 16px" }}>
+                                <div style={{ background: "#e5e7eb", borderRadius: 4, height: 8, overflow: "hidden" }}>
+                                  <div style={{ width: `${barPct}%`, height: "100%", background: d.color, borderRadius: 4, transition: "width 0.6s" }} />
+                                </div>
+                                <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>{dTH} / {dKH || "?"}</div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {/* Hàng tổng cộng */}
+                        {(() => {
+                          let gKH = 0, gTH = 0;
+                          departments.forEach(d => d.members.forEach(mb => d.metrics.forEach(m => {
+                            gKH += sumKH(dailyData, d.id, selectedMonth, mb.id, allDayKeys, m.key);
+                            gTH += sumMetrics(dailyData, d.id, selectedMonth, mb.id, allDayKeys, m.key);
+                          })));
+                          const gPct = gKH > 0 ? Math.round(gTH / gKH * 100) : 0;
+                          const gPctColor = gPct >= 100 ? "#057a55" : gPct >= 80 ? "#c27803" : "#c81e1e";
+                          return (
+                            <tr style={{ background: "#0f172a", borderTop: "2px solid #0f172a" }}>
+                              <td style={{ padding: "12px 16px" }}>
+                                <div style={{ fontWeight: 800, color: "#fff", fontSize: 13 }}>TỔNG CỘNG</div>
+                                <div style={{ fontSize: 11, color: "#94a3b8" }}>Toàn hệ thống</div>
+                              </td>
+                              <td style={{ padding: "8px 10px", textAlign: "center", color: "#94a3b8" }}>
+                                {departments.reduce((s, d) => s + d.members.length, 0)}
+                              </td>
+                              <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                                <span style={{ fontWeight: 800, color: "#93c5fd", fontSize: 16 }}>{gKH || "-"}</span>
+                              </td>
+                              <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                                <span style={{ fontWeight: 800, color: "#6ee7b7", fontSize: 16 }}>{gTH || "-"}</span>
+                              </td>
+                              <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                                {gKH > 0 ? (
+                                  <span style={{ background: gPctColor, color: "#fff", fontWeight: 800, fontSize: 13, padding: "4px 12px", borderRadius: 20 }}>{gPct}%</span>
+                                ) : <span style={{ color: "#475569" }}>-</span>}
+                              </td>
+                              <td style={{ padding: "8px 16px" }}>
+                                <div style={{ background: "#1e293b", borderRadius: 4, height: 8, overflow: "hidden" }}>
+                                  <div style={{ width: `${gKH > 0 ? Math.min(gPct, 100) : 0}%`, height: "100%", background: "#22c55e", borderRadius: 4 }} />
+                                </div>
+                                <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>{gTH} / {gKH || "?"}</div>
+                              </td>
+                            </tr>
+                          );
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Chi tiết từng đơn vị */}
+            {(() => {
+              const allDayKeys = summaryMode === "month" ? currentMonthDays : summaryMode === "week" ? currentWeekDays : [currentDayKey];
+              const periodLabel = summaryMode === "month" ? monthLabel : summaryMode === "week" ? selectedWeek : `${selectedWeek} · ${selectedDay}`;
+              return departments.map(d => {
+                // Lấy các chỉ tiêu chung giữa các dept (dùng chính metrics của dept đó)
+                let dKH = 0, dTH = 0;
+                d.members.forEach(mb => d.metrics.forEach(m => {
+                  dKH += sumKH(dailyData, d.id, selectedMonth, mb.id, allDayKeys, m.key);
+                  dTH += sumMetrics(dailyData, d.id, selectedMonth, mb.id, allDayKeys, m.key);
+                }));
+                const pct = dKH > 0 ? Math.round(dTH / dKH * 100) : 0;
+                const pctColor = pct >= 100 ? "#057a55" : pct >= 80 ? "#c27803" : "#c81e1e";
+                return (
+                  <div key={d.id} style={{ marginBottom: 20 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                      <div style={{ width: 4, height: 24, borderRadius: 2, background: d.color }} />
+                      <div style={{ fontWeight: 700, fontSize: 15, color: d.color }}>{d.name}</div>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>{d.fullName}</div>
+                      {dKH > 0 && <span style={{ marginLeft: "auto", background: pctColor, color: "#fff", padding: "3px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700 }}>{pct}%</span>}
+                    </div>
+                    <ReportTable
+                      dept={d} metrics={d.metrics} members={d.members}
+                      dayKeys={allDayKeys} dailyData={dailyData}
+                      monthKey={selectedMonth} deptColor={d.color}
+                      title={`${d.name} · ${periodLabel}`}
+                      subtitle={d.fullName}
+                    />
+                  </div>
+                );
+              });
+            })()}
           </div>
         )}
 
