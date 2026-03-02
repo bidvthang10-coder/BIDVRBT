@@ -353,6 +353,14 @@ export default function App() {
   const [newMemberForm, setNewMemberForm] = useState({ name: "", role: "LS" });
   const [confirmDelete, setConfirmDelete] = useState(null);
 
+  // Add/delete dept
+  const [showAddDeptModal, setShowAddDeptModal]   = useState(false);
+  const [confirmDeleteDept, setConfirmDeleteDept] = useState(null);
+  const [newDeptForm, setNewDeptForm] = useState({
+    name: "", fullName: "", color: "#1a56db", role: "UB",
+    metrics: [{ key: "", label: "", unit: "" }]
+  });
+
   // ── Firebase realtime listeners ────────────────────────
   useEffect(() => {
     const unsubDepts = onSnapshot(DOC_DEPTS,
@@ -465,6 +473,43 @@ export default function App() {
     setToast({ msg: `Đã lưu: ${name} · ${entryWeek} ${entryDay}` });
   }
 
+  // ── Add/Delete dept ────────────────────────────────────
+  async function addDept() {
+    const name = newDeptForm.name.trim();
+    if (!name) return;
+    const newId = "D" + Date.now();
+    const validMetrics = newDeptForm.metrics.filter(m => m.label.trim());
+    const newDept = {
+      id: newId,
+      name: name,
+      fullName: newDeptForm.fullName.trim() || name,
+      color: newDeptForm.color,
+      members: [],
+      metrics: validMetrics.map((m, i) => ({
+        key: m.key.trim() || "metric_" + i,
+        label: m.label.trim(),
+        unit: m.unit.trim() || "Chỉ tiêu",
+      })),
+    };
+    const newDepts = [...departments, newDept];
+    setShowAddDeptModal(false);
+    setNewDeptForm({ name: "", fullName: "", color: "#1a56db", role: "UB", metrics: [{ key: "", label: "", unit: "" }] });
+    await writeDepts(newDepts);
+    setActiveDept(newId);
+    setToast({ msg: `Đã thêm phòng: ${name}` });
+  }
+
+  async function deleteDept(deptId) {
+    const dName = departments.find(d => d.id === deptId)?.name;
+    const newDepts = departments.filter(d => d.id !== deptId);
+    const newData = JSON.parse(JSON.stringify(dailyData));
+    if (newData[deptId]) delete newData[deptId];
+    setConfirmDeleteDept(null);
+    if (activeDept === deptId) setActiveDept(newDepts[0]?.id || "__SUMMARY__");
+    await Promise.all([writeDepts(newDepts), writeDailyData(newData)]);
+    setToast({ msg: `Đã xóa phòng: ${dName}` });
+  }
+
   // ── Add/Delete member ──────────────────────────────────
   async function addMember() {
     if (!newMemberForm.name.trim()) return;
@@ -542,6 +587,10 @@ export default function App() {
           <button onClick={() => { setActiveDept("__SUMMARY__"); setSelectedMember(null); setShowMonthPicker(false); }}
             style={{ background: activeDept === "__SUMMARY__" ? "#f59e0b" : "transparent", color: activeDept === "__SUMMARY__" ? "#fff" : "#94a3b8", border: "none", cursor: "pointer", padding: "8px 16px", borderRadius: "8px 8px 0 0", fontSize: 13, fontWeight: 600, transition: "all 0.2s", borderBottom: activeDept === "__SUMMARY__" ? "2px solid #f59e0b" : "2px solid transparent" }}>
             🏢 Tổng hợp
+          </button>
+          <button onClick={() => { setNewDeptForm({ name: "", fullName: "", color: "#1a56db", role: "UB", metrics: [{ key: "", label: "", unit: "" }] }); setShowAddDeptModal(true); }}
+            style={{ background: "transparent", color: "#4ade80", border: "1px dashed #4ade80", cursor: "pointer", padding: "5px 14px", borderRadius: 8, fontSize: 13, fontWeight: 700, marginLeft: 6, marginBottom: 4, alignSelf: "center" }}>
+            ＋ Thêm phòng
           </button>
         </div>
       </div>
@@ -907,7 +956,11 @@ export default function App() {
         {/* ── THÀNH VIÊN ── */}
         {activeTab === "members" && (
           <div>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginBottom: 16 }}>
+              <button onClick={() => setConfirmDeleteDept(activeDept)}
+                style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", borderRadius: 9, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                🗑 Xóa phòng này
+              </button>
               <button onClick={() => { setNewMemberForm({ name: "", role: activeDept === "QTTD" ? "LS" : "UB" }); setShowAddModal(true); }}
                 style={{ background: deptColor, color: "#fff", border: "none", borderRadius: 9, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                 ＋ Thêm nhân viên
@@ -1169,7 +1222,96 @@ export default function App() {
         </div>
       )}
 
-      {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
+      {/* ══ MODAL THÊM PHÒNG ══ */}
+      {showAddDeptModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+          <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 560, maxHeight: "92vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ padding: "18px 24px", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>Thêm phòng ban mới</div>
+              <button onClick={() => setShowAddDeptModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}>✕</button>
+            </div>
+            <div style={{ padding: "20px 24px" }}>
+              {/* Tên phòng */}
+              <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 6 }}>Tên phòng (hiển thị trên tab) *</label>
+              <input type="text" value={newDeptForm.name}
+                onChange={e => setNewDeptForm(p => ({ ...p, name: e.target.value }))}
+                style={{ width: "100%", padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 9, fontSize: 14, boxSizing: "border-box", marginBottom: 14 }}
+                placeholder="Vd: PGD Cẩm Phả" autoFocus />
+
+              {/* Tên đầy đủ */}
+              <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 6 }}>Tên đầy đủ</label>
+              <input type="text" value={newDeptForm.fullName}
+                onChange={e => setNewDeptForm(p => ({ ...p, fullName: e.target.value }))}
+                style={{ width: "100%", padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 9, fontSize: 14, boxSizing: "border-box", marginBottom: 14 }}
+                placeholder="Vd: Phòng Giao Dịch Cẩm Phả" />
+
+              {/* Màu */}
+              <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 8 }}>Màu nhận diện</label>
+              <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+                {["#1a56db","#057a55","#9f1239","#6d28d9","#c27803","#0e7490","#9a3412","#1e3a5f"].map(c => (
+                  <div key={c} onClick={() => setNewDeptForm(p => ({ ...p, color: c }))}
+                    style={{ width: 32, height: 32, borderRadius: "50%", background: c, cursor: "pointer", border: newDeptForm.color === c ? "3px solid #111" : "3px solid transparent", boxSizing: "border-box" }} />
+                ))}
+                <input type="color" value={newDeptForm.color}
+                  onChange={e => setNewDeptForm(p => ({ ...p, color: e.target.value }))}
+                  style={{ width: 32, height: 32, borderRadius: "50%", border: "none", padding: 0, cursor: "pointer" }} title="Chọn màu tùy chỉnh" />
+              </div>
+
+              {/* Chỉ tiêu */}
+              <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 8 }}>Chỉ tiêu đánh giá</label>
+              {newDeptForm.metrics.map((m, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                  <input type="text" value={m.label}
+                    onChange={e => { const ms = [...newDeptForm.metrics]; ms[i] = { ...ms[i], label: e.target.value, key: e.target.value.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "") }; setNewDeptForm(p => ({ ...p, metrics: ms })); }}
+                    style={{ flex: 2, padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }}
+                    placeholder={`Chỉ tiêu ${i + 1}`} />
+                  <input type="text" value={m.unit}
+                    onChange={e => { const ms = [...newDeptForm.metrics]; ms[i] = { ...ms[i], unit: e.target.value }; setNewDeptForm(p => ({ ...p, metrics: ms })); }}
+                    style={{ flex: 1, padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }}
+                    placeholder="Đơn vị" />
+                  {newDeptForm.metrics.length > 1 && (
+                    <button onClick={() => setNewDeptForm(p => ({ ...p, metrics: p.metrics.filter((_, j) => j !== i) }))}
+                      style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 7, padding: "6px 10px", cursor: "pointer", color: "#dc2626", fontWeight: 700, fontSize: 14 }}>✕</button>
+                  )}
+                </div>
+              ))}
+              <button onClick={() => setNewDeptForm(p => ({ ...p, metrics: [...p.metrics, { key: "", label: "", unit: "" }] }))}
+                style={{ background: "#f0fdf4", border: "1px dashed #86efac", borderRadius: 8, padding: "7px 16px", cursor: "pointer", color: "#16a34a", fontWeight: 600, fontSize: 13, marginTop: 4 }}>
+                ＋ Thêm chỉ tiêu
+              </button>
+            </div>
+            <div style={{ padding: "14px 24px", borderTop: "1px solid #e5e7eb", display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowAddDeptModal(false)} style={{ padding: "10px 20px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>Hủy</button>
+              <button onClick={addDept} disabled={!newDeptForm.name.trim()}
+                style={{ padding: "10px 24px", border: "none", borderRadius: 8, background: newDeptForm.name.trim() ? newDeptForm.color : "#e5e7eb", color: newDeptForm.name.trim() ? "#fff" : "#9ca3af", cursor: newDeptForm.name.trim() ? "pointer" : "not-allowed", fontSize: 14, fontWeight: 700 }}>
+                Tạo phòng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ MODAL XÁC NHẬN XÓA PHÒNG ══ */}
+      {confirmDeleteDept && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+          <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 380, padding: 28, textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Xóa phòng ban?</div>
+            <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 12 }}>
+              Xóa <strong>{departments.find(d => d.id === confirmDeleteDept)?.name}</strong>?
+            </div>
+            <div style={{ color: "#dc2626", fontSize: 12, background: "#fef2f2", padding: "10px 14px", borderRadius: 8, marginBottom: 20, lineHeight: 1.6 }}>
+              Toàn bộ nhân viên và dữ liệu của phòng này sẽ bị xóa vĩnh viễn khỏi Firebase.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setConfirmDeleteDept(null)} style={{ flex: 1, padding: 11, border: "1px solid #e5e7eb", borderRadius: 9, background: "#fff", cursor: "pointer", fontWeight: 600 }}>Hủy</button>
+              <button onClick={() => deleteDept(confirmDeleteDept)} style={{ flex: 1, padding: 11, border: "none", borderRadius: 9, background: "#dc2626", color: "#fff", cursor: "pointer", fontWeight: 700 }}>Xóa phòng</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}}
     </div>
   );
 }
