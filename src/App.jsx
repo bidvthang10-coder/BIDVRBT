@@ -1,18 +1,12 @@
 // ╔══════════════════════════════════════════════════════════╗
 // ║  HỆ THỐNG QUẢN LÝ HIỆU SUẤT – Firebase Realtime Sync   ║
-// ║  Nhập theo ngày · Báo cáo ngày / tuần / tháng lũy kế  ║
+// ║  Phân quyền: Admin / Phòng ban                         ║
 // ╚══════════════════════════════════════════════════════════╝
-//
-// Cấu trúc dữ liệu Firestore:
-//   appdata/departments  → danh sách phòng ban + nhân viên
-//   appdata/dailydata    → { [deptId]: { [monthKey]: { [memberId]: { [dateKey "2026-01-06"]: { [metricKey]: value } } } } }
-//
-// DEPLOY: npm run build → git add . → git commit → git push → Vercel tự deploy
 
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import {
-  getFirestore, doc, getDoc, setDoc, onSnapshot, serverTimestamp
+  getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 // ══════════════════════════════════════════════════════════
@@ -33,6 +27,18 @@ const DOC_DEPTS = doc(db, "appdata", "departments");
 const DOC_DAILY = doc(db, "appdata", "dailydata");
 
 // ══════════════════════════════════════════════════════════
+// PHÂN QUYỀN – danh sách tài khoản
+// Để đổi mật khẩu: sửa trường "password" tương ứng
+// ══════════════════════════════════════════════════════════
+const USERS = [
+  { username: "admin",   password: "admin@bidv",   role: "admin", deptId: null,       label: "Quản trị viên",  color: "#0f172a" },
+  { username: "qttd",    password: "qttd@bidv",    role: "dept",  deptId: "QTTD",     label: "Phòng QTTD",     color: "#1a56db" },
+  { username: "gdkh",    password: "gdkh@bidv",    role: "dept",  deptId: "GDKH",     label: "Phòng GDKH",     color: "#057a55" },
+  { username: "cambinh", password: "cambinh@bidv", role: "dept",  deptId: "CAM_BINH", label: "PGD Cẩm Bình",   color: "#9f1239" },
+  { username: "camthuy", password: "camthuy@bidv", role: "dept",  deptId: "CAM_THUY", label: "PGD Cẩm Thủy",   color: "#6d28d9" },
+];
+
+// ══════════════════════════════════════════════════════════
 // HẰNG SỐ
 // ══════════════════════════════════════════════════════════
 const MONTHS = [
@@ -49,17 +55,12 @@ const MONTHS = [
   { key: "2026-11", label: "Tháng 11/2026" },
   { key: "2026-12", label: "Tháng 12/2026" },
 ];
-
-// Tuần 1-5, mỗi tuần có Thứ 2 → Thứ 7
-const WEEKS = ["Tuần 1", "Tuần 2", "Tuần 3", "Tuần 4", "Tuần 5"];
+const WEEKS        = ["Tuần 1", "Tuần 2", "Tuần 3", "Tuần 4", "Tuần 5"];
 const DAYS_OF_WEEK = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
 const DAY_SHORT    = ["T2", "T3", "T4", "T5", "T6", "T7"];
 
-// Tạo danh sách ngày key: "W1-D1" = Tuần 1 Thứ 2, ...
 function makeDayKey(week, day) { return `${week.replace(" ", "")}-${day.replace(" ", "")}`; }
-// Lấy tất cả ngày của 1 tuần
 function daysOfWeek(week) { return DAYS_OF_WEEK.map(d => makeDayKey(week, d)); }
-// Lấy tất cả ngày của 1 tháng
 function daysOfMonth() {
   const days = [];
   WEEKS.forEach(w => DAYS_OF_WEEK.forEach(d => days.push(makeDayKey(w, d))));
@@ -70,11 +71,11 @@ const DEFAULT_DEPARTMENTS = [
   {
     id: "QTTD", name: "Phòng QTTD", fullName: "Phòng Quản Trị Tín Dụng", color: "#1a56db",
     members: [
-      { id: "NNA",  name: "Nguyễn Thị Ngọc Anh", role: "LS" },
-      { id: "VTT",  name: "Vũ Thu Thủy",          role: "LS" },
-      { id: "DTH",  name: "Đinh Thị Hồng Hạnh",  role: "LS" },
-      { id: "PLV",  name: "Phạm Lê Vân",          role: "LS" },
-      { id: "DHP",  name: "Đoàn Hoài Hương",      role: "LS" },
+      { id: "NNA", name: "Nguyễn Thị Ngọc Anh", role: "LS" },
+      { id: "VTT", name: "Vũ Thu Thủy",          role: "LS" },
+      { id: "DTH", name: "Đinh Thị Hồng Hạnh",  role: "LS" },
+      { id: "PLV", name: "Phạm Lê Vân",          role: "LS" },
+      { id: "DHP", name: "Đoàn Hoài Hương",      role: "LS" },
     ],
     metrics: [
       { key: "soan_thao_hd", label: "Soạn thảo HĐ",          unit: "Khách hàng" },
@@ -109,58 +110,49 @@ const DEFAULT_DEPARTMENTS = [
     id: "CAM_BINH", name: "PGD Cẩm Bình", fullName: "Phòng Giao Dịch Cẩm Bình", color: "#9f1239",
     members: [{ id: "NHA", name: "Nguyễn Hồng Ánh", role: "UB" }],
     metrics: [
-      { key: "so_luong_gd",   label: "Số lượng giao dịch",         unit: "Giao dịch"  },
-      { key: "so_luong_kh",   label: "Số lượng KH giao dịch",      unit: "Khách hàng" },
-      { key: "kh_smb_moi",    label: "Số lượng KH SMB mới",        unit: "Khách hàng" },
-      { key: "trinh_bay_sp",  label: "Trình bày SP",                unit: "Khách hàng" },
-      { key: "kh_chot_ban",   label: "KH chốt bán",                unit: "Khách hàng" },
-      { key: "sp_chot_ban",   label: "SP chốt bán",                unit: "Sản phẩm"   },
-      { key: "ds_tien_gui",   label: "Doanh số tiền gửi online",   unit: "Triệu đồng" },
-      { key: "ds_bh_metlife", label: "Doanh số Bảo hiểm Metlife",  unit: "Triệu đồng" },
-      { key: "sp_khac",       label: "Sản phẩm khác",              unit: "Sản phẩm"   },
-      { key: "csat",          label: "CSAT",                        unit: "Điểm"       },
+      { key: "so_luong_gd",   label: "Số lượng giao dịch",       unit: "Giao dịch"  },
+      { key: "so_luong_kh",   label: "Số lượng KH giao dịch",    unit: "Khách hàng" },
+      { key: "kh_smb_moi",    label: "Số lượng KH SMB mới",      unit: "Khách hàng" },
+      { key: "trinh_bay_sp",  label: "Trình bày SP",              unit: "Khách hàng" },
+      { key: "kh_chot_ban",   label: "KH chốt bán",              unit: "Khách hàng" },
+      { key: "sp_chot_ban",   label: "SP chốt bán",              unit: "Sản phẩm"   },
+      { key: "ds_tien_gui",   label: "Doanh số tiền gửi online", unit: "Triệu đồng" },
+      { key: "ds_bh_metlife", label: "Doanh số BH Metlife",      unit: "Triệu đồng" },
+      { key: "sp_khac",       label: "Sản phẩm khác",            unit: "Sản phẩm"   },
+      { key: "csat",          label: "CSAT",                      unit: "Điểm"       },
     ],
   },
   {
     id: "CAM_THUY", name: "PGD Cẩm Thủy", fullName: "Phòng Giao Dịch Cẩm Thủy", color: "#6d28d9",
     members: [{ id: "PKL", name: "Phạm Khánh Linh", role: "UB" }],
     metrics: [
-      { key: "so_luong_gd",   label: "Số lượng giao dịch",         unit: "Giao dịch"  },
-      { key: "so_luong_kh",   label: "Số lượng KH giao dịch",      unit: "Khách hàng" },
-      { key: "kh_smb_moi",    label: "Số lượng KH SMB mới",        unit: "Khách hàng" },
-      { key: "trinh_bay_sp",  label: "Trình bày SP",                unit: "Khách hàng" },
-      { key: "kh_chot_ban",   label: "KH chốt bán",                unit: "Khách hàng" },
-      { key: "sp_chot_ban",   label: "SP chốt bán",                unit: "Sản phẩm"   },
-      { key: "ds_tien_gui",   label: "Doanh số tiền gửi online",   unit: "Triệu đồng" },
-      { key: "ds_bh_metlife", label: "Doanh số Bảo hiểm Metlife",  unit: "Triệu đồng" },
-      { key: "sp_khac",       label: "Sản phẩm khác",              unit: "Sản phẩm"   },
-      { key: "csat",          label: "CSAT",                        unit: "Điểm"       },
+      { key: "so_luong_gd",   label: "Số lượng giao dịch",       unit: "Giao dịch"  },
+      { key: "so_luong_kh",   label: "Số lượng KH giao dịch",    unit: "Khách hàng" },
+      { key: "kh_smb_moi",    label: "Số lượng KH SMB mới",      unit: "Khách hàng" },
+      { key: "trinh_bay_sp",  label: "Trình bày SP",              unit: "Khách hàng" },
+      { key: "kh_chot_ban",   label: "KH chốt bán",              unit: "Khách hàng" },
+      { key: "sp_chot_ban",   label: "SP chốt bán",              unit: "Sản phẩm"   },
+      { key: "ds_tien_gui",   label: "Doanh số tiền gửi online", unit: "Triệu đồng" },
+      { key: "ds_bh_metlife", label: "Doanh số BH Metlife",      unit: "Triệu đồng" },
+      { key: "sp_khac",       label: "Sản phẩm khác",            unit: "Sản phẩm"   },
+      { key: "csat",          label: "CSAT",                      unit: "Điểm"       },
     ],
   },
 ];
 
 // ══════════════════════════════════════════════════════════
-// TÍNH TỔNG từ dailyData theo danh sách dayKeys
-// dailyData[deptId][monthKey][memberId][dayKey][metricKey] = số
+// UTILITY FUNCTIONS
 // ══════════════════════════════════════════════════════════
 function sumMetrics(dailyData, deptId, monthKey, memberId, dayKeys, metricKey) {
   let total = 0;
-  dayKeys.forEach(dk => {
-    total += Number(dailyData[deptId]?.[monthKey]?.[memberId]?.[dk]?.[metricKey]?.th || 0);
-  });
+  dayKeys.forEach(dk => { total += Number(dailyData[deptId]?.[monthKey]?.[memberId]?.[dk]?.[metricKey]?.th || 0); });
   return total;
 }
 function sumKH(dailyData, deptId, monthKey, memberId, dayKeys, metricKey) {
   let total = 0;
-  dayKeys.forEach(dk => {
-    total += Number(dailyData[deptId]?.[monthKey]?.[memberId]?.[dk]?.[metricKey]?.kh || 0);
-  });
+  dayKeys.forEach(dk => { total += Number(dailyData[deptId]?.[monthKey]?.[memberId]?.[dk]?.[metricKey]?.kh || 0); });
   return total;
 }
-
-// ══════════════════════════════════════════════════════════
-// UI HELPERS
-// ══════════════════════════════════════════════════════════
 function getRatioColor(r) {
   if (r >= 1)   return "#057a55";
   if (r >= 0.8) return "#c27803";
@@ -171,14 +163,10 @@ function getRatioBg(r) {
   if (r >= 0.8) return "#fdf6b2";
   return "#fde8e8";
 }
-function ProgressBar({ value, max }) {
-  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
-  return (
-    <div style={{ background: "#e5e7eb", borderRadius: 4, height: 6, width: "100%", overflow: "hidden" }}>
-      <div style={{ width: `${pct}%`, height: "100%", background: getRatioColor(max > 0 ? value / max : 0), borderRadius: 4, transition: "width 0.4s" }} />
-    </div>
-  );
-}
+
+// ══════════════════════════════════════════════════════════
+// UI COMPONENTS
+// ══════════════════════════════════════════════════════════
 function Badge({ role }) {
   const c = role === "LS" ? { bg: "#fff7ed", text: "#c2410c" } : { bg: "#fce7f3", text: "#9d174d" };
   return <span style={{ background: c.bg, color: c.text, fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 20 }}>{role}</span>;
@@ -194,9 +182,8 @@ function StatCard({ label, value, sub, color }) {
 }
 function Toast({ msg, type = "success", onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2500); return () => clearTimeout(t); }, []);
-  const bg = type === "error" ? "#dc2626" : "#111827";
   return (
-    <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", background: bg, color: "#fff", padding: "11px 24px", borderRadius: 24, fontSize: 13, fontWeight: 600, zIndex: 9999, boxShadow: "0 4px 20px rgba(0,0,0,.25)", display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
+    <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", background: type === "error" ? "#dc2626" : "#111827", color: "#fff", padding: "11px 24px", borderRadius: 24, fontSize: 13, fontWeight: 600, zIndex: 9999, boxShadow: "0 4px 20px rgba(0,0,0,.25)", display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
       {type === "error" ? "❌" : "✅"} {msg}
     </div>
   );
@@ -211,7 +198,102 @@ function SyncBadge({ online, saving, lastSync }) {
   );
 }
 
-// Bảng báo cáo tổng hợp (dùng chung cho ngày/tuần/tháng)
+// ══════════════════════════════════════════════════════════
+// LOGIN SCREEN
+// ══════════════════════════════════════════════════════════
+function LoginScreen({ onLogin }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw]     = useState(false);
+  const [error, setError]       = useState("");
+  const [loading, setLoading]   = useState(false);
+
+  function handleLogin(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    setTimeout(() => {
+      const user = USERS.find(u => u.username === username.trim().toLowerCase() && u.password === password);
+      if (user) { onLogin(user); }
+      else { setError("Tên đăng nhập hoặc mật khẩu không đúng."); }
+      setLoading(false);
+    }, 400);
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
+      <div style={{ width: "100%", maxWidth: 420 }}>
+        {/* Logo */}
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 72, height: 72, borderRadius: 20, background: "linear-gradient(135deg, #1a56db, #3b82f6)", boxShadow: "0 8px 32px rgba(26,86,219,0.4)", marginBottom: 16 }}>
+            <span style={{ fontSize: 34, fontWeight: 900, color: "#fff" }}>B</span>
+          </div>
+          <div style={{ color: "#f8fafc", fontSize: 20, fontWeight: 800 }}>BIDV Cẩm Phả</div>
+          <div style={{ color: "#94a3b8", fontSize: 13, marginTop: 4 }}>Hệ thống Quản lý Hiệu suất RBT</div>
+        </div>
+
+        {/* Card đăng nhập */}
+        <div style={{ background: "rgba(255,255,255,0.05)", backdropFilter: "blur(16px)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 20, padding: 32, boxShadow: "0 24px 64px rgba(0,0,0,0.4)" }}>
+          <div style={{ color: "#f1f5f9", fontSize: 18, fontWeight: 700, marginBottom: 24 }}>Đăng nhập</div>
+          <form onSubmit={handleLogin}>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#94a3b8", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Tên đăng nhập</label>
+              <input type="text" value={username} autoComplete="username"
+                onChange={e => setUsername(e.target.value)}
+                style={{ width: "100%", padding: "12px 16px", background: "rgba(255,255,255,0.08)", border: `1px solid ${error ? "#ef4444" : "rgba(255,255,255,0.15)"}`, borderRadius: 12, fontSize: 15, color: "#f1f5f9", boxSizing: "border-box", outline: "none" }}
+                placeholder="Nhập tên đăng nhập..." autoFocus />
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#94a3b8", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Mật khẩu</label>
+              <div style={{ position: "relative" }}>
+                <input type={showPw ? "text" : "password"} value={password} autoComplete="current-password"
+                  onChange={e => setPassword(e.target.value)}
+                  style={{ width: "100%", padding: "12px 44px 12px 16px", background: "rgba(255,255,255,0.08)", border: `1px solid ${error ? "#ef4444" : "rgba(255,255,255,0.15)"}`, borderRadius: 12, fontSize: 15, color: "#f1f5f9", boxSizing: "border-box", outline: "none" }}
+                  placeholder="Nhập mật khẩu..." />
+                <button type="button" onClick={() => setShowPw(v => !v)}
+                  style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#64748b", fontSize: 16, padding: 4 }}>
+                  {showPw ? "🙈" : "👁️"}
+                </button>
+              </div>
+            </div>
+            {error && (
+              <div style={{ color: "#fca5a5", fontSize: 13, marginBottom: 16, display: "flex", alignItems: "center", gap: 6 }}>
+                ⚠️ {error}
+              </div>
+            )}
+            <button type="submit" disabled={loading || !username || !password}
+              style={{ width: "100%", padding: "13px 0", marginTop: 8, background: loading || !username || !password ? "rgba(26,86,219,0.4)" : "linear-gradient(135deg, #1a56db, #3b82f6)", border: "none", borderRadius: 12, color: "#fff", fontSize: 15, fontWeight: 700, cursor: loading || !username || !password ? "not-allowed" : "pointer", boxShadow: loading || !username || !password ? "none" : "0 4px 16px rgba(26,86,219,0.4)" }}>
+              {loading ? "⏳ Đang xác thực..." : "🔐 Đăng nhập"}
+            </button>
+          </form>
+
+          {/* Gợi ý tài khoản */}
+          <div style={{ marginTop: 24, padding: "14px 16px", background: "rgba(255,255,255,0.04)", borderRadius: 10, border: "1px solid rgba(255,255,255,0.08)" }}>
+            <div style={{ fontSize: 11, color: "#64748b", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Tài khoản hệ thống</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {USERS.map(u => (
+                <div key={u.username} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, cursor: "pointer" }}
+                  onClick={() => { setUsername(u.username); setPassword(u.password); setError(""); }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: u.color, flexShrink: 0 }} />
+                  <span style={{ color: "#94a3b8", minWidth: 76, fontWeight: 600 }}>{u.username}</span>
+                  <span style={{ color: "#475569" }}>→</span>
+                  <span style={{ color: "#64748b" }}>{u.label}</span>
+                  {u.role === "admin" && <span style={{ fontSize: 9, background: "#f59e0b", color: "#78350f", padding: "1px 5px", borderRadius: 6, fontWeight: 800 }}>ADMIN</span>}
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 10, color: "#475569", marginTop: 8 }}>💡 Nhấp vào tên để điền tự động</div>
+          </div>
+        </div>
+        <div style={{ textAlign: "center", marginTop: 20, color: "#475569", fontSize: 12 }}>BIDV Chi nhánh Cẩm Phả · Hệ thống nội bộ</div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// REPORT TABLE
+// ══════════════════════════════════════════════════════════
 function ReportTable({ dept, metrics, members, dayKeys, dailyData, monthKey, deptColor, title, subtitle }) {
   const deptId = dept.id;
   const deptTotals = useMemo(() => {
@@ -227,11 +309,11 @@ function ReportTable({ dept, metrics, members, dayKeys, dailyData, monthKey, dep
     return t;
   }, [dailyData, dayKeys, monthKey]);
 
-  const grandTH = Object.values(deptTotals).reduce((a, b) => a + b.th, 0);
-  const grandKH = Object.values(deptTotals).reduce((a, b) => a + b.kh, 0);
+  const grandTH  = Object.values(deptTotals).reduce((a, b) => a + b.th, 0);
+  const grandKH  = Object.values(deptTotals).reduce((a, b) => a + b.kh, 0);
   const grandPct = grandKH > 0 ? Math.round(grandTH / grandKH * 100) : 0;
-  const pctColor = (r) => r >= 100 ? "#057a55" : r >= 80 ? "#c27803" : "#c81e1e";
-  const pctBg    = (r) => r >= 100 ? "#def7ec" : r >= 80 ? "#fdf6b2" : "#fde8e8";
+  const pc = (r) => r >= 100 ? "#057a55" : r >= 80 ? "#c27803" : "#c81e1e";
+  const pb = (r) => r >= 100 ? "#def7ec" : r >= 80 ? "#fdf6b2" : "#fde8e8";
 
   return (
     <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
@@ -242,9 +324,7 @@ function ReportTable({ dept, metrics, members, dayKeys, dailyData, monthKey, dep
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 12, color: "#6b7280" }}>KH: {grandKH} · TH: {grandTH}</span>
-          <span style={{ background: pctBg(grandPct), color: pctColor(grandPct), padding: "3px 12px", borderRadius: 20, fontSize: 13, fontWeight: 700 }}>
-            {grandPct}%
-          </span>
+          <span style={{ background: pb(grandPct), color: pc(grandPct), padding: "3px 12px", borderRadius: 20, fontSize: 13, fontWeight: 700 }}>{grandPct}%</span>
         </div>
       </div>
       <div style={{ overflowX: "auto" }}>
@@ -257,18 +337,14 @@ function ReportTable({ dept, metrics, members, dayKeys, dailyData, monthKey, dep
                   <div style={{ fontWeight: 700, fontSize: 12 }}>{m.name.split(" ").slice(-2).join(" ")}</div>
                   <div style={{ marginTop: 2 }}><Badge role={m.role} /></div>
                   <div style={{ display: "flex", justifyContent: "center", gap: 4, color: "#9ca3af", fontSize: 10, marginTop: 4 }}>
-                    <span style={{ minWidth: 36, textAlign: "center" }}>KH</span>
-                    <span style={{ minWidth: 36, textAlign: "center" }}>TH</span>
-                    <span style={{ minWidth: 36, textAlign: "center" }}>%HT</span>
+                    <span style={{ minWidth: 36 }}>KH</span><span style={{ minWidth: 36 }}>TH</span><span style={{ minWidth: 36 }}>%HT</span>
                   </div>
                 </th>
               ))}
               <th style={{ padding: "8px 6px", textAlign: "center", borderBottom: "1px solid #e5e7eb", background: "#eff6ff", minWidth: 150 }}>
                 <div style={{ fontWeight: 700, color: "#1e40af", fontSize: 12 }}>TỔNG PHÒNG</div>
                 <div style={{ display: "flex", justifyContent: "center", gap: 4, color: "#9ca3af", fontSize: 10, marginTop: 20 }}>
-                  <span style={{ minWidth: 36, textAlign: "center" }}>KH</span>
-                  <span style={{ minWidth: 36, textAlign: "center" }}>TH</span>
-                  <span style={{ minWidth: 36, textAlign: "center" }}>%HT</span>
+                  <span style={{ minWidth: 36 }}>KH</span><span style={{ minWidth: 36 }}>TH</span><span style={{ minWidth: 36 }}>%HT</span>
                 </div>
               </th>
             </tr>
@@ -292,9 +368,7 @@ function ReportTable({ dept, metrics, members, dayKeys, dailyData, monthKey, dep
                         <div style={{ display: "flex", gap: 4, justifyContent: "center", alignItems: "center" }}>
                           <span style={{ minWidth: 36, color: "#374151", fontSize: 13 }}>{kh || "-"}</span>
                           <span style={{ minWidth: 36, fontWeight: 700, color: th > 0 ? deptColor : "#d1d5db", fontSize: 14 }}>{th || "-"}</span>
-                          <span style={{ minWidth: 36, fontWeight: 700, fontSize: 11, color: pctColor(pct), background: kh > 0 ? pctBg(pct) : "transparent", padding: "1px 4px", borderRadius: 6 }}>
-                            {kh > 0 ? pct + "%" : "-"}
-                          </span>
+                          <span style={{ minWidth: 36, fontWeight: 700, fontSize: 11, color: pc(pct), background: kh > 0 ? pb(pct) : "transparent", padding: "1px 4px", borderRadius: 6 }}>{kh > 0 ? pct + "%" : "-"}</span>
                         </div>
                       </td>
                     );
@@ -303,9 +377,7 @@ function ReportTable({ dept, metrics, members, dayKeys, dailyData, monthKey, dep
                     <div style={{ display: "flex", gap: 4, justifyContent: "center", alignItems: "center" }}>
                       <span style={{ minWidth: 36, color: "#374151", fontSize: 13 }}>{dKH || "-"}</span>
                       <span style={{ minWidth: 36, fontWeight: 800, color: dTH > 0 ? "#1e40af" : "#d1d5db", fontSize: 14 }}>{dTH || "-"}</span>
-                      <span style={{ minWidth: 36, fontWeight: 700, fontSize: 11, color: pctColor(dPct), background: dKH > 0 ? pctBg(dPct) : "transparent", padding: "1px 4px", borderRadius: 6 }}>
-                        {dKH > 0 ? dPct + "%" : "-"}
-                      </span>
+                      <span style={{ minWidth: 36, fontWeight: 700, fontSize: 11, color: pc(dPct), background: dKH > 0 ? pb(dPct) : "transparent", padding: "1px 4px", borderRadius: 6 }}>{dKH > 0 ? dPct + "%" : "-"}</span>
                     </div>
                   </td>
                 </tr>
@@ -322,7 +394,15 @@ function ReportTable({ dept, metrics, members, dayKeys, dailyData, monthKey, dep
 // MAIN APP
 // ══════════════════════════════════════════════════════════
 export default function App() {
-  // Firebase state
+  // ── Auth ────────────────────────────────────────────────
+  const [currentUser, setCurrentUser] = useState(() => {
+    try { const s = sessionStorage.getItem("bidv_rbt_user"); return s ? JSON.parse(s) : null; }
+    catch { return null; }
+  });
+  function handleLogin(user) { sessionStorage.setItem("bidv_rbt_user", JSON.stringify(user)); setCurrentUser(user); }
+  function handleLogout() { sessionStorage.removeItem("bidv_rbt_user"); setCurrentUser(null); }
+
+  // ── Firebase state ──────────────────────────────────────
   const [departments, setDepartments] = useState(DEFAULT_DEPARTMENTS);
   const [dailyData, setDailyData]     = useState({});
   const [loading, setLoading]         = useState(true);
@@ -331,8 +411,9 @@ export default function App() {
   const [lastSync, setLastSync]       = useState(null);
   const [toast, setToast]             = useState(null);
 
-  // UI state
-  const [activeDept, setActiveDept]           = useState("QTTD");
+  // ── UI state ────────────────────────────────────────────
+  const initDept = currentUser?.role === "dept" ? currentUser.deptId : "QTTD";
+  const [activeDept, setActiveDept]           = useState(initDept);
   const [activeTab, setActiveTab]             = useState("daily");
   const [selectedMonth, setSelectedMonth]     = useState("2026-01");
   const [selectedWeek, setSelectedWeek]       = useState("Tuần 1");
@@ -340,29 +421,30 @@ export default function App() {
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [selectedMember, setSelectedMember]   = useState(null);
   const [summaryMode, setSummaryMode]         = useState("month");
+  const [showUserMenu, setShowUserMenu]       = useState(false);
 
-  // Entry modal
+  // Modal states
   const [showEntryModal, setShowEntryModal] = useState(false);
   const [entryMember, setEntryMember]       = useState(null);
   const [entryWeek, setEntryWeek]           = useState("Tuần 1");
   const [entryDay, setEntryDay]             = useState("Thứ 2");
   const [entryForm, setEntryForm]           = useState({});
-
-  // Add/delete member
-  const [showAddModal, setShowAddModal]   = useState(false);
-  const [newMemberForm, setNewMemberForm] = useState({ name: "", role: "LS" });
-  const [confirmDelete, setConfirmDelete] = useState(null);
-
-  // Add/delete dept
+  const [showAddModal, setShowAddModal]       = useState(false);
+  const [newMemberForm, setNewMemberForm]     = useState({ name: "", role: "LS" });
+  const [confirmDelete, setConfirmDelete]     = useState(null);
   const [showAddDeptModal, setShowAddDeptModal]   = useState(false);
   const [confirmDeleteDept, setConfirmDeleteDept] = useState(null);
-  const [newDeptForm, setNewDeptForm] = useState({
-    name: "", fullName: "", color: "#1a56db", role: "UB",
-    metrics: [{ key: "", label: "", unit: "" }]
-  });
+  const [newDeptForm, setNewDeptForm] = useState({ name: "", fullName: "", color: "#1a56db", metrics: [{ key: "", label: "", unit: "" }] });
 
-  // ── Firebase realtime listeners ────────────────────────
+  // ── Quyền truy cập ──────────────────────────────────────
+  const isAdmin      = currentUser?.role === "admin";
+  const isDept       = currentUser?.role === "dept";
+  const canEdit      = (deptId) => isAdmin || (isDept && currentUser.deptId === deptId);
+  const canManage    = isAdmin;
+
+  // ── Firebase listeners ──────────────────────────────────
   useEffect(() => {
+    if (!currentUser) return;
     const unsubDepts = onSnapshot(DOC_DEPTS,
       snap => { if (snap.exists()) setDepartments(snap.data().list); setOnline(true); setLastSync(new Date()); },
       () => setOnline(false)
@@ -371,22 +453,24 @@ export default function App() {
       snap => { if (snap.exists()) setDailyData(snap.data().data || {}); setOnline(true); setLastSync(new Date()); setLoading(false); },
       () => { setOnline(false); setLoading(false); }
     );
-    // Init if empty
     Promise.all([getDoc(DOC_DEPTS), getDoc(DOC_DAILY)]).then(([ds, dd]) => {
-      if (!ds.exists()) setDoc(DOC_DEPTS,  { list: DEFAULT_DEPARTMENTS, updatedAt: serverTimestamp() });
-      if (!dd.exists()) setDoc(DOC_DAILY,  { data: {},                  updatedAt: serverTimestamp() });
+      if (!ds.exists()) setDoc(DOC_DEPTS, { list: DEFAULT_DEPARTMENTS, updatedAt: serverTimestamp() });
+      if (!dd.exists()) setDoc(DOC_DAILY, { data: {}, updatedAt: serverTimestamp() });
     });
     return () => { unsubDepts(); unsubDaily(); };
-  }, []);
+  }, [currentUser]);
 
-  // ── Write helpers ──────────────────────────────────────
+  useEffect(() => {
+    if (isDept) setActiveDept(currentUser.deptId);
+  }, [currentUser]);
+
+  // ── Write helpers ───────────────────────────────────────
   const writeDepts = useCallback(async (d) => {
     setSaving(true);
     try { await setDoc(DOC_DEPTS, { list: d, updatedAt: serverTimestamp() }); }
     catch (e) { setToast({ msg: "Lỗi: " + e.message, type: "error" }); }
     setSaving(false);
   }, []);
-
   const writeDailyData = useCallback(async (d) => {
     setSaving(true);
     try { await setDoc(DOC_DAILY, { data: d, updatedAt: serverTimestamp() }); }
@@ -394,147 +478,128 @@ export default function App() {
     setSaving(false);
   }, []);
 
-  // ── Derived ────────────────────────────────────────────
-  const isSummary  = activeDept === "__SUMMARY__";
-  const dept       = departments.find(d => d.id === activeDept) || departments[0];
-  const deptColor  = isSummary ? "#f59e0b" : dept.color;
-  const monthLabel = MONTHS.find(m => m.key === selectedMonth)?.label || selectedMonth;
-  const currentDayKey = makeDayKey(selectedWeek, selectedDay);
-  const currentWeekDays = daysOfWeek(selectedWeek);
+  // ── Derived values ──────────────────────────────────────
+  const isSummary        = activeDept === "__SUMMARY__";
+  const dept             = departments.find(d => d.id === activeDept) || departments[0];
+  const deptColor        = isSummary ? "#f59e0b" : (dept?.color || "#1a56db");
+  const monthLabel       = MONTHS.find(m => m.key === selectedMonth)?.label || selectedMonth;
+  const currentDayKey    = makeDayKey(selectedWeek, selectedDay);
+  const currentWeekDays  = daysOfWeek(selectedWeek);
   const currentMonthDays = daysOfMonth();
 
-  // Tổng toàn phòng theo ngày hiện tại (cho stat cards)
   const dayGrandTotal = useMemo(() => {
-    let sum = 0;
-    dept.members.forEach(m => dept.metrics.forEach(met => {
-      sum += sumMetrics(dailyData, activeDept, selectedMonth, m.id, [currentDayKey], met.key);
-    }));
-    return sum;
+    if (!dept) return 0;
+    return dept.members.reduce((s, m) => s + dept.metrics.reduce((ss, met) => ss + sumMetrics(dailyData, activeDept, selectedMonth, m.id, [currentDayKey], met.key), 0), 0);
   }, [dailyData, activeDept, selectedMonth, currentDayKey, departments]);
 
   const weekGrandTotal = useMemo(() => {
-    let sum = 0;
-    dept.members.forEach(m => dept.metrics.forEach(met => {
-      sum += sumMetrics(dailyData, activeDept, selectedMonth, m.id, currentWeekDays, met.key);
-    }));
-    return sum;
+    if (!dept) return 0;
+    return dept.members.reduce((s, m) => s + dept.metrics.reduce((ss, met) => ss + sumMetrics(dailyData, activeDept, selectedMonth, m.id, currentWeekDays, met.key), 0), 0);
   }, [dailyData, activeDept, selectedMonth, selectedWeek, departments]);
 
   const monthGrandTotal = useMemo(() => {
-    let sum = 0;
-    dept.members.forEach(m => dept.metrics.forEach(met => {
-      sum += sumMetrics(dailyData, activeDept, selectedMonth, m.id, currentMonthDays, met.key);
-    }));
-    return sum;
+    if (!dept) return 0;
+    return dept.members.reduce((s, m) => s + dept.metrics.reduce((ss, met) => ss + sumMetrics(dailyData, activeDept, selectedMonth, m.id, currentMonthDays, met.key), 0), 0);
   }, [dailyData, activeDept, selectedMonth, departments]);
 
-  // ── Entry modal ────────────────────────────────────────
+  // ── Entry modal ─────────────────────────────────────────
   function openEntryModal(memberId) {
-    setEntryMember(memberId);
-    setEntryWeek(selectedWeek);
-    setEntryDay(selectedDay);
-    loadEntryForm(memberId, selectedWeek, selectedDay);
-    setShowEntryModal(true);
+    setEntryMember(memberId); setEntryWeek(selectedWeek); setEntryDay(selectedDay);
+    loadEntryForm(memberId, selectedWeek, selectedDay); setShowEntryModal(true);
   }
-
   function loadEntryForm(memberId, week, day) {
     const dk = makeDayKey(week, day);
     const init = {};
     dept.metrics.forEach(m => {
-      const existing = dailyData[activeDept]?.[selectedMonth]?.[memberId]?.[dk]?.[m.key];
-      init[m.key + "_kh"] = existing?.kh !== undefined ? String(existing.kh) : "";
-      init[m.key + "_th"] = existing?.th !== undefined ? String(existing.th) : "";
+      const ex = dailyData[activeDept]?.[selectedMonth]?.[memberId]?.[dk]?.[m.key];
+      init[m.key + "_kh"] = ex?.kh !== undefined ? String(ex.kh) : "";
+      init[m.key + "_th"] = ex?.th !== undefined ? String(ex.th) : "";
     });
     setEntryForm(init);
   }
-
-  function switchEntryDay(week, day) {
-    setEntryWeek(week);
-    setEntryDay(day);
-    loadEntryForm(entryMember, week, day);
-  }
-
+  function switchEntryDay(week, day) { setEntryWeek(week); setEntryDay(day); loadEntryForm(entryMember, week, day); }
   async function saveEntry() {
+    if (!canEdit(activeDept)) return;
     const dk = makeDayKey(entryWeek, entryDay);
-    const updated = JSON.parse(JSON.stringify(dailyData));
-    if (!updated[activeDept]) updated[activeDept] = {};
-    if (!updated[activeDept][selectedMonth]) updated[activeDept][selectedMonth] = {};
-    if (!updated[activeDept][selectedMonth][entryMember]) updated[activeDept][selectedMonth][entryMember] = {};
-    if (!updated[activeDept][selectedMonth][entryMember][dk]) updated[activeDept][selectedMonth][entryMember][dk] = {};
+    // Dùng updateDoc + dot-notation: chỉ ghi đúng các field cần thiết
+    // → tránh race condition khi nhiều phòng cùng nhập lúc đó
+    const fields = {};
     dept.metrics.forEach(m => {
-      updated[activeDept][selectedMonth][entryMember][dk][m.key] = {
+      const path = "data." + activeDept + "." + selectedMonth + "." + entryMember + "." + dk + "." + m.key;
+      fields[path] = {
         kh: Number(entryForm[m.key + "_kh"]) || 0,
         th: Number(entryForm[m.key + "_th"]) || 0,
       };
     });
     setShowEntryModal(false);
-    await writeDailyData(updated);
-    const name = dept.members.find(m => m.id === entryMember)?.name?.split(" ").pop();
-    setToast({ msg: `Đã lưu: ${name} · ${entryWeek} ${entryDay}` });
+    setSaving(true);
+    try {
+      await updateDoc(DOC_DAILY, fields);
+      const name = dept.members.find(m => m.id === entryMember)?.name?.split(" ").pop();
+      setToast({ msg: `Đã lưu: ${name} · ${entryWeek} ${entryDay}` });
+    } catch (e) {
+      if (e.code === "not-found") {
+        try {
+          await setDoc(DOC_DAILY, { data: {}, updatedAt: serverTimestamp() });
+          await updateDoc(DOC_DAILY, fields);
+          const name = dept.members.find(m => m.id === entryMember)?.name?.split(" ").pop();
+          setToast({ msg: `Đã lưu: ${name} · ${entryWeek} ${entryDay}` });
+        } catch (e2) { setToast({ msg: "Lỗi: " + e2.message, type: "error" }); }
+      } else {
+        setToast({ msg: "Lỗi: " + e.message, type: "error" });
+      }
+    }
+    setSaving(false);
   }
 
-  // ── Add/Delete dept ────────────────────────────────────
+  // ── Dept management ─────────────────────────────────────
   async function addDept() {
-    const name = newDeptForm.name.trim();
-    if (!name) return;
+    if (!canManage) return;
+    const name = newDeptForm.name.trim(); if (!name) return;
     const newId = "D" + Date.now();
-    const validMetrics = newDeptForm.metrics.filter(m => m.label.trim());
-    const newDept = {
-      id: newId,
-      name: name,
-      fullName: newDeptForm.fullName.trim() || name,
-      color: newDeptForm.color,
-      members: [],
-      metrics: validMetrics.map((m, i) => ({
-        key: m.key.trim() || "metric_" + i,
-        label: m.label.trim(),
-        unit: m.unit.trim() || "Chỉ tiêu",
-      })),
-    };
+    const newDept = { id: newId, name, fullName: newDeptForm.fullName.trim() || name, color: newDeptForm.color, members: [],
+      metrics: newDeptForm.metrics.filter(m => m.label.trim()).map((m, i) => ({ key: m.key.trim() || "metric_" + i, label: m.label.trim(), unit: m.unit.trim() || "Chỉ tiêu" })) };
     const newDepts = [...departments, newDept];
     setShowAddDeptModal(false);
-    setNewDeptForm({ name: "", fullName: "", color: "#1a56db", role: "UB", metrics: [{ key: "", label: "", unit: "" }] });
-    await writeDepts(newDepts);
-    setActiveDept(newId);
+    setNewDeptForm({ name: "", fullName: "", color: "#1a56db", metrics: [{ key: "", label: "", unit: "" }] });
+    await writeDepts(newDepts); setActiveDept(newId);
     setToast({ msg: `Đã thêm phòng: ${name}` });
   }
-
   async function deleteDept(deptId) {
+    if (!canManage) return;
     const dName = departments.find(d => d.id === deptId)?.name;
     const newDepts = departments.filter(d => d.id !== deptId);
-    const newData = JSON.parse(JSON.stringify(dailyData));
-    if (newData[deptId]) delete newData[deptId];
+    const newData = JSON.parse(JSON.stringify(dailyData)); if (newData[deptId]) delete newData[deptId];
     setConfirmDeleteDept(null);
     if (activeDept === deptId) setActiveDept(newDepts[0]?.id || "__SUMMARY__");
     await Promise.all([writeDepts(newDepts), writeDailyData(newData)]);
     setToast({ msg: `Đã xóa phòng: ${dName}` });
   }
 
-  // ── Add/Delete member ──────────────────────────────────
+  // ── Member management ───────────────────────────────────
   async function addMember() {
-    if (!newMemberForm.name.trim()) return;
+    if (!canManage || !newMemberForm.name.trim()) return;
     const newId = "M" + Date.now();
     const newMember = { id: newId, name: newMemberForm.name.trim(), role: newMemberForm.role };
     const newDepts = departments.map(d => d.id === activeDept ? { ...d, members: [...d.members, newMember] } : d);
-    setShowAddModal(false);
-    await writeDepts(newDepts);
+    setShowAddModal(false); await writeDepts(newDepts);
     setToast({ msg: `Đã thêm: ${newMember.name}` });
   }
-
   async function deleteMember(memberId) {
+    if (!canManage) return;
     const name = dept.members.find(m => m.id === memberId)?.name?.split(" ").pop();
     const newDepts = departments.map(d => d.id === activeDept ? { ...d, members: d.members.filter(m => m.id !== memberId) } : d);
     const newData = JSON.parse(JSON.stringify(dailyData));
-    MONTHS.forEach(({ key: mk }) => {
-      if (newData[activeDept]?.[mk]?.[memberId]) delete newData[activeDept][mk][memberId];
-    });
-    setConfirmDelete(null);
-    if (selectedMember === memberId) setSelectedMember(null);
+    MONTHS.forEach(({ key: mk }) => { if (newData[activeDept]?.[mk]?.[memberId]) delete newData[activeDept][mk][memberId]; });
+    setConfirmDelete(null); if (selectedMember === memberId) setSelectedMember(null);
     await Promise.all([writeDepts(newDepts), writeDailyData(newData)]);
     setToast({ msg: `Đã xóa: ${name}` });
   }
 
-  // ── Loading ────────────────────────────────────────────
+  // ── Guard: show login if not authenticated ──────────────
+  if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
+
+  // ── Loading ─────────────────────────────────────────────
   if (loading) return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#f8fafc", gap: 16 }}>
       <div style={{ width: 44, height: 44, borderRadius: "50%", border: "4px solid #e5e7eb", borderTopColor: deptColor, animation: "spin 0.8s linear infinite" }} />
@@ -543,24 +608,29 @@ export default function App() {
     </div>
   );
 
+  const closeDropdowns = () => { setShowMonthPicker(false); setShowUserMenu(false); };
+
   // ══════════════════════════════════════════════════════
   // RENDER
   // ══════════════════════════════════════════════════════
   return (
     <div style={{ fontFamily: "'Segoe UI',system-ui,sans-serif", background: "#f8fafc", minHeight: "100vh", color: "#111827" }}>
 
-      {/* ── HEADER ── */}
+      {/* ══ HEADER ══ */}
       <div style={{ background: "#0f172a", color: "#fff", padding: "0 24px" }}>
         <div style={{ display: "flex", alignItems: "center", height: 56, gap: 16 }}>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: deptColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, flexShrink: 0 }}>⬡</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 700 }}>Hệ thống Quản lý Hiệu suất</div>
-            <div style={{ fontSize: 11, color: "#94a3b8" }}>{activeDept === "__SUMMARY__" ? "Tổng hợp tất cả đơn vị" : dept.fullName} · {monthLabel}</div>
+            <div style={{ fontSize: 11, color: "#94a3b8" }}>
+              {isSummary ? "Tổng hợp tất cả đơn vị" : dept?.fullName} · {monthLabel}
+            </div>
           </div>
           <SyncBadge online={online} saving={saving} lastSync={lastSync} />
+
           {/* Month picker */}
           <div style={{ position: "relative" }}>
-            <button onClick={e => { e.stopPropagation(); setShowMonthPicker(v => !v); }}
+            <button onClick={e => { e.stopPropagation(); setShowMonthPicker(v => !v); setShowUserMenu(false); }}
               style={{ fontSize: 12, color: "#e2e8f0", background: "#1e293b", padding: "6px 14px", borderRadius: 20, border: "none", cursor: "pointer", fontWeight: 600 }}>
               📅 {monthLabel} ▾
             </button>
@@ -575,72 +645,101 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {/* User menu */}
+          <div style={{ position: "relative" }}>
+            <button onClick={e => { e.stopPropagation(); setShowUserMenu(v => !v); setShowMonthPicker(false); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 20, padding: "5px 12px 5px 8px", cursor: "pointer", color: "#e2e8f0", fontSize: 12, fontWeight: 600 }}>
+              <div style={{ width: 22, height: 22, borderRadius: "50%", background: currentUser.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 800 }}>
+                {currentUser.username[0].toUpperCase()}
+              </div>
+              {currentUser.label}
+              {isAdmin && <span style={{ fontSize: 9, background: "#f59e0b", color: "#78350f", padding: "1px 5px", borderRadius: 6, fontWeight: 800 }}>ADMIN</span>}
+            </button>
+            {showUserMenu && (
+              <div style={{ position: "absolute", right: 0, top: 44, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, boxShadow: "0 8px 24px rgba(0,0,0,.2)", zIndex: 400, minWidth: 200, overflow: "hidden" }}>
+                <div style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
+                  <div style={{ fontWeight: 700, color: "#111827", fontSize: 13 }}>{currentUser.label}</div>
+                  <div style={{ color: "#6b7280", fontSize: 11, marginTop: 2 }}>@{currentUser.username} · {isAdmin ? "Quản trị viên" : "Nhân viên phòng"}</div>
+                </div>
+                <button onClick={() => { setShowUserMenu(false); handleLogout(); }}
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "11px 16px", border: "none", background: "transparent", cursor: "pointer", fontSize: 13, color: "#dc2626", fontWeight: 600 }}>
+                  🚪 Đăng xuất
+                </button>
+              </div>
+            )}
+          </div>
         </div>
+
         {/* Dept tabs */}
         <div style={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-          {departments.map(d => (
-            <button key={d.id} onClick={() => { setActiveDept(d.id); setSelectedMember(null); setShowMonthPicker(false); }}
-              style={{ background: activeDept === d.id ? d.color : "transparent", color: activeDept === d.id ? "#fff" : "#94a3b8", border: "none", cursor: "pointer", padding: "8px 16px", borderRadius: "8px 8px 0 0", fontSize: 13, fontWeight: 600, transition: "all 0.2s", borderBottom: activeDept === d.id ? `2px solid ${d.color}` : "2px solid transparent" }}>
-              {d.name}
+          {departments
+            .filter(d => isAdmin || (isDept && d.id === currentUser.deptId))
+            .map(d => (
+              <button key={d.id} onClick={() => { setActiveDept(d.id); setSelectedMember(null); closeDropdowns(); }}
+                style={{ background: activeDept === d.id ? d.color : "transparent", color: activeDept === d.id ? "#fff" : "#94a3b8", border: "none", cursor: "pointer", padding: "8px 16px", borderRadius: "8px 8px 0 0", fontSize: 13, fontWeight: 600, borderBottom: activeDept === d.id ? `2px solid ${d.color}` : "2px solid transparent" }}>
+                {d.name}
+              </button>
+            ))}
+          {isAdmin && (
+            <button onClick={() => { setActiveDept("__SUMMARY__"); setSelectedMember(null); closeDropdowns(); }}
+              style={{ background: activeDept === "__SUMMARY__" ? "#f59e0b" : "transparent", color: activeDept === "__SUMMARY__" ? "#fff" : "#94a3b8", border: "none", cursor: "pointer", padding: "8px 16px", borderRadius: "8px 8px 0 0", fontSize: 13, fontWeight: 600, borderBottom: activeDept === "__SUMMARY__" ? "2px solid #f59e0b" : "2px solid transparent" }}>
+              🏢 Tổng hợp
             </button>
-          ))}
-          <button onClick={() => { setActiveDept("__SUMMARY__"); setSelectedMember(null); setShowMonthPicker(false); }}
-            style={{ background: activeDept === "__SUMMARY__" ? "#f59e0b" : "transparent", color: activeDept === "__SUMMARY__" ? "#fff" : "#94a3b8", border: "none", cursor: "pointer", padding: "8px 16px", borderRadius: "8px 8px 0 0", fontSize: 13, fontWeight: 600, transition: "all 0.2s", borderBottom: activeDept === "__SUMMARY__" ? "2px solid #f59e0b" : "2px solid transparent" }}>
-            🏢 Tổng hợp
-          </button>
-          <button onClick={() => { setNewDeptForm({ name: "", fullName: "", color: "#1a56db", role: "UB", metrics: [{ key: "", label: "", unit: "" }] }); setShowAddDeptModal(true); }}
-            style={{ background: "transparent", color: "#4ade80", border: "1px dashed #4ade80", cursor: "pointer", padding: "5px 14px", borderRadius: 8, fontSize: 13, fontWeight: 700, marginLeft: 6, marginBottom: 4, alignSelf: "center" }}>
-            ＋ Thêm phòng
-          </button>
+          )}
+          {isAdmin && (
+            <button onClick={() => { setNewDeptForm({ name: "", fullName: "", color: "#1a56db", metrics: [{ key: "", label: "", unit: "" }] }); setShowAddDeptModal(true); }}
+              style={{ background: "transparent", color: "#4ade80", border: "1px dashed #4ade80", cursor: "pointer", padding: "5px 14px", borderRadius: 8, fontSize: 13, fontWeight: 700, marginLeft: 6, marginBottom: 4, alignSelf: "center" }}>
+              ＋ Thêm phòng
+            </button>
+          )}
         </div>
       </div>
 
-      <div style={{ padding: "20px 24px" }} onClick={() => setShowMonthPicker(false)}>
+      {/* ══ BODY ══ */}
+      <div style={{ padding: "20px 24px" }} onClick={closeDropdowns}>
 
         {/* Sub tabs */}
-        {!isSummary && <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 4, width: "fit-content", flexWrap: "wrap" }}>
-          {[
-            { key: "daily",   label: "📋 Báo cáo ngày"  },
-            { key: "weekly",  label: "📊 Báo cáo tuần"  },
-            { key: "monthly", label: "📈 Báo cáo tháng" },
-            { key: "members", label: "👥 Thành viên"    },
-            { key: "entry",   label: "✏️ Nhập liệu"     },
-          ].map(t => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)}
-              style={{ background: activeTab === t.key ? deptColor : "transparent", color: activeTab === t.key ? "#fff" : "#6b7280", border: "none", cursor: "pointer", borderRadius: 7, padding: "7px 16px", fontSize: 13, fontWeight: 600, transition: "all 0.2s" }}>
-              {t.label}
-            </button>
-          ))}
-        </div>}
+        {!isSummary && (
+          <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 4, width: "fit-content", flexWrap: "wrap" }}>
+            {[
+              { key: "daily",   label: "📋 Báo cáo ngày"  },
+              { key: "weekly",  label: "📊 Báo cáo tuần"  },
+              { key: "monthly", label: "📈 Báo cáo tháng" },
+              { key: "members", label: "👥 Thành viên"    },
+              ...(canEdit(activeDept) ? [{ key: "entry", label: "✏️ Nhập liệu" }] : []),
+            ].map(t => (
+              <button key={t.key} onClick={() => setActiveTab(t.key)}
+                style={{ background: activeTab === t.key ? deptColor : "transparent", color: activeTab === t.key ? "#fff" : "#6b7280", border: "none", cursor: "pointer", borderRadius: 7, padding: "7px 16px", fontSize: 13, fontWeight: 600 }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Stat cards */}
-        {!isSummary && <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-          <StatCard label="Tổng ngày" value={dayGrandTotal} sub={`${selectedWeek} · ${selectedDay}`} color={deptColor} />
-          <StatCard label="Tổng tuần (lũy kế)" value={weekGrandTotal} sub={selectedWeek} color={getRatioColor(weekGrandTotal > 0 ? 1 : 0)} />
-          <StatCard label="Tổng tháng (lũy kế)" value={monthGrandTotal} sub={monthLabel} color="#7c3aed" />
-          <StatCard label="Thành viên" value={dept.members.length} sub={dept.fullName} />
-        </div>}
+        {!isSummary && (
+          <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+            <StatCard label="Tổng ngày" value={dayGrandTotal} sub={`${selectedWeek} · ${selectedDay}`} color={deptColor} />
+            <StatCard label="Tổng tuần (lũy kế)" value={weekGrandTotal} sub={selectedWeek} color={getRatioColor(weekGrandTotal > 0 ? 1 : 0)} />
+            <StatCard label="Tổng tháng (lũy kế)" value={monthGrandTotal} sub={monthLabel} color="#7c3aed" />
+            <StatCard label="Thành viên" value={dept?.members.length || 0} sub={dept?.fullName} />
+          </div>
+        )}
 
-        {/* ══ TỔNG HỢP theo vị trí ══ */}
+        {/* ── TỔNG HỢP (admin only) ── */}
         {isSummary && (() => {
           const roles = ["LS", "UB"];
           return (
             <div>
-              {/* Chọn kỳ */}
               <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 4, width: "fit-content", flexWrap: "wrap" }}>
-                {[
-                  { key: "month", label: "📈 Lũy kế tháng" },
-                  { key: "week",  label: "📊 Lũy kế tuần"  },
-                  { key: "day",   label: "📋 Theo ngày"     },
-                ].map(m => (
+                {[{ key: "month", label: "📈 Lũy kế tháng" }, { key: "week", label: "📊 Lũy kế tuần" }, { key: "day", label: "📋 Theo ngày" }].map(m => (
                   <button key={m.key} onClick={() => setSummaryMode(m.key)}
                     style={{ background: summaryMode === m.key ? "#f59e0b" : "transparent", color: summaryMode === m.key ? "#fff" : "#6b7280", border: "none", cursor: "pointer", borderRadius: 7, padding: "7px 16px", fontSize: 13, fontWeight: 600 }}>
                     {m.label}
                   </button>
                 ))}
               </div>
-
-              {/* Chọn tuần / ngày */}
               {(summaryMode === "week" || summaryMode === "day") && (
                 <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
                   {WEEKS.map(w => (
@@ -661,24 +760,17 @@ export default function App() {
                   ))}
                 </div>
               )}
-
-              {/* Bảng theo từng vị trí */}
               {roles.map(role => {
                 const dayKeys = summaryMode === "month" ? currentMonthDays : summaryMode === "week" ? currentWeekDays : [currentDayKey];
                 const periodLabel = summaryMode === "month" ? monthLabel : summaryMode === "week" ? selectedWeek : `${selectedWeek} · ${selectedDay}`;
-                // Tất cả thành viên có role này
                 const roleMembers = [];
                 departments.forEach(d => d.members.forEach(mb => {
                   if (mb.role === role) roleMembers.push({ ...mb, deptId: d.id, deptName: d.name, deptColor: d.color, metrics: d.metrics });
                 }));
                 if (roleMembers.length === 0) return null;
-
-                // Chỉ tiêu của role (từ dept đầu tiên có role đó)
                 const firstDept = departments.find(d => d.members.some(m => m.role === role));
                 const roleMetrics = firstDept ? firstDept.metrics : [];
                 const roleColor = role === "LS" ? "#1a56db" : "#9d174d";
-
-                // Tổng role
                 let roleKH = 0, roleTH = 0;
                 roleMembers.forEach(mb => roleMetrics.forEach(met => {
                   if (mb.metrics.some(m => m.key === met.key)) {
@@ -687,18 +779,16 @@ export default function App() {
                   }
                 }));
                 const rolePct = roleKH > 0 ? Math.round(roleTH / roleKH * 100) : 0;
-                const pctColor = (r) => r >= 100 ? "#057a55" : r >= 80 ? "#c27803" : "#c81e1e";
-                const pctBg    = (r) => r >= 100 ? "#def7ec" : r >= 80 ? "#fdf6b2" : "#fde8e8";
-
+                const pc = (r) => r >= 100 ? "#057a55" : r >= 80 ? "#c27803" : "#c81e1e";
+                const pb = (r) => r >= 100 ? "#def7ec" : r >= 80 ? "#fdf6b2" : "#fde8e8";
                 return (
                   <div key={role} style={{ marginBottom: 28 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
                       <div style={{ background: roleColor, color: "#fff", fontWeight: 800, fontSize: 14, padding: "4px 18px", borderRadius: 20 }}>{role}</div>
                       <div style={{ fontWeight: 700, fontSize: 15 }}>{role === "LS" ? "Vị trí LS" : "Vị trí UB"}</div>
                       <div style={{ color: "#6b7280", fontSize: 13 }}>· {roleMembers.length} nhân viên · {periodLabel}</div>
-                      {roleKH > 0 && <span style={{ marginLeft: "auto", background: pctBg(rolePct), color: pctColor(rolePct), fontWeight: 800, fontSize: 13, padding: "4px 16px", borderRadius: 20 }}>{rolePct}%</span>}
+                      {roleKH > 0 && <span style={{ marginLeft: "auto", background: pb(rolePct), color: pc(rolePct), fontWeight: 800, fontSize: 13, padding: "4px 16px", borderRadius: 20 }}>{rolePct}%</span>}
                     </div>
-
                     <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
                       <div style={{ overflowX: "auto" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -710,18 +800,14 @@ export default function App() {
                                   <div style={{ fontWeight: 700, fontSize: 11 }}>{mb.name.split(" ").slice(-2).join(" ")}</div>
                                   <div style={{ fontSize: 10, color: mb.deptColor, fontWeight: 600, marginTop: 2 }}>{mb.deptName}</div>
                                   <div style={{ display: "flex", justifyContent: "center", gap: 4, color: "#9ca3af", fontSize: 10, marginTop: 4 }}>
-                                    <span style={{ minWidth: 30, textAlign: "center" }}>KH</span>
-                                    <span style={{ minWidth: 30, textAlign: "center" }}>TH</span>
-                                    <span style={{ minWidth: 36, textAlign: "center" }}>%HT</span>
+                                    <span style={{ minWidth: 30 }}>KH</span><span style={{ minWidth: 30 }}>TH</span><span style={{ minWidth: 36 }}>%HT</span>
                                   </div>
                                 </th>
                               ))}
                               <th style={{ padding: "8px 6px", textAlign: "center", borderBottom: "1px solid #e5e7eb", background: "#fef3c7", minWidth: 120 }}>
                                 <div style={{ fontWeight: 700, color: "#92400e", fontSize: 12 }}>TỔNG {role}</div>
                                 <div style={{ display: "flex", justifyContent: "center", gap: 4, color: "#9ca3af", fontSize: 10, marginTop: 20 }}>
-                                  <span style={{ minWidth: 30, textAlign: "center" }}>KH</span>
-                                  <span style={{ minWidth: 30, textAlign: "center" }}>TH</span>
-                                  <span style={{ minWidth: 36, textAlign: "center" }}>%HT</span>
+                                  <span style={{ minWidth: 30 }}>KH</span><span style={{ minWidth: 30 }}>TH</span><span style={{ minWidth: 36 }}>%HT</span>
                                 </div>
                               </th>
                             </tr>
@@ -753,9 +839,7 @@ export default function App() {
                                           <div style={{ display: "flex", gap: 4, justifyContent: "center", alignItems: "center" }}>
                                             <span style={{ minWidth: 30, color: "#374151", fontSize: 12 }}>{kh || "-"}</span>
                                             <span style={{ minWidth: 30, fontWeight: 700, color: th > 0 ? mb.deptColor : "#d1d5db", fontSize: 13 }}>{th || "-"}</span>
-                                            <span style={{ minWidth: 36, fontWeight: 700, fontSize: 10, color: pctColor(pct), background: kh > 0 ? pctBg(pct) : "transparent", padding: "1px 4px", borderRadius: 5 }}>
-                                              {kh > 0 ? pct + "%" : "-"}
-                                            </span>
+                                            <span style={{ minWidth: 36, fontWeight: 700, fontSize: 10, color: pc(pct), background: kh > 0 ? pb(pct) : "transparent", padding: "1px 4px", borderRadius: 5 }}>{kh > 0 ? pct + "%" : "-"}</span>
                                           </div>
                                         ) : <span style={{ color: "#e5e7eb" }}>—</span>}
                                       </td>
@@ -765,9 +849,7 @@ export default function App() {
                                     <div style={{ display: "flex", gap: 4, justifyContent: "center", alignItems: "center" }}>
                                       <span style={{ minWidth: 30, color: "#374151", fontSize: 12 }}>{totKH || "-"}</span>
                                       <span style={{ minWidth: 30, fontWeight: 800, color: totTH > 0 ? "#92400e" : "#d1d5db", fontSize: 13 }}>{totTH || "-"}</span>
-                                      <span style={{ minWidth: 36, fontWeight: 700, fontSize: 10, color: pctColor(tPct), background: totKH > 0 ? pctBg(tPct) : "transparent", padding: "1px 4px", borderRadius: 5 }}>
-                                        {totKH > 0 ? tPct + "%" : "-"}
-                                      </span>
+                                      <span style={{ minWidth: 36, fontWeight: 700, fontSize: 10, color: pc(tPct), background: totKH > 0 ? pb(tPct) : "transparent", padding: "1px 4px", borderRadius: 5 }}>{totKH > 0 ? tPct + "%" : "-"}</span>
                                     </div>
                                   </td>
                                 </tr>
@@ -785,9 +867,8 @@ export default function App() {
         })()}
 
         {/* ── BÁO CÁO NGÀY ── */}
-        {activeTab === "daily" && (
+        {!isSummary && activeTab === "daily" && (
           <div>
-            {/* Chọn tuần + ngày */}
             <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Chọn ngày xem báo cáo</div>
               <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
@@ -807,18 +888,12 @@ export default function App() {
                 ))}
               </div>
             </div>
-            <ReportTable
-              dept={dept} metrics={dept.metrics} members={dept.members}
-              dayKeys={[currentDayKey]} dailyData={dailyData}
-              monthKey={selectedMonth} deptColor={deptColor}
-              title={`Báo cáo ngày · ${selectedWeek} · ${selectedDay}`}
-              subtitle={`${dept.fullName} · ${monthLabel}`}
-            />
+            <ReportTable dept={dept} metrics={dept.metrics} members={dept.members} dayKeys={[currentDayKey]} dailyData={dailyData} monthKey={selectedMonth} deptColor={deptColor} title={`Báo cáo ngày · ${selectedWeek} · ${selectedDay}`} subtitle={`${dept.fullName} · ${monthLabel}`} />
           </div>
         )}
 
         {/* ── BÁO CÁO TUẦN ── */}
-        {activeTab === "weekly" && (
+        {!isSummary && activeTab === "weekly" && (
           <div>
             <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
               {WEEKS.map(w => (
@@ -828,72 +903,13 @@ export default function App() {
                 </button>
               ))}
             </div>
-            {/* Bảng theo từng ngày trong tuần */}
-            <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
-              <div style={{ padding: "14px 20px", borderBottom: "1px solid #f3f4f6" }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>Chi tiết từng ngày · {selectedWeek}</div>
-                <div style={{ color: "#6b7280", fontSize: 12 }}>{dept.fullName} · {monthLabel}</div>
-              </div>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: "#f9fafb" }}>
-                      <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #e5e7eb", minWidth: 160 }}>Thành viên</th>
-                      {DAYS_OF_WEEK.map((d, i) => (
-                        <th key={d} style={{ padding: "10px 10px", textAlign: "center", borderBottom: "1px solid #e5e7eb", minWidth: 70 }}>
-                          <div style={{ fontWeight: 600, color: "#374151" }}>{DAY_SHORT[i]}</div>
-                        </th>
-                      ))}
-                      <th style={{ padding: "10px 10px", textAlign: "center", borderBottom: "1px solid #e5e7eb", background: "#eff6ff", minWidth: 80 }}>
-                        <div style={{ fontWeight: 700, color: "#1e40af" }}>Tổng tuần</div>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dept.members.map((mb, mi) => {
-                      const weekTotal = sumMetrics(dailyData, activeDept, selectedMonth, mb.id, currentWeekDays, dept.metrics.map(m => m.key).join(",").split(","));
-                      // Tổng tất cả metrics theo ngày
-                      const dayTotals = DAYS_OF_WEEK.map(d => {
-                        const dk = makeDayKey(selectedWeek, d);
-                        return dept.metrics.reduce((sum, m) => sum + sumMetrics(dailyData, activeDept, selectedMonth, mb.id, [dk], m.key), 0);
-                      });
-                      const memberWeekTotal = dayTotals.reduce((a, b) => a + b, 0);
-                      return (
-                        <tr key={mb.id} style={{ background: mi % 2 === 0 ? "#fff" : "#fafafa", borderBottom: "1px solid #f3f4f6" }}>
-                          <td style={{ padding: "10px 16px" }}>
-                            <div style={{ fontWeight: 600, fontSize: 13 }}>{mb.name.split(" ").slice(-2).join(" ")}</div>
-                            <Badge role={mb.role} />
-                          </td>
-                          {dayTotals.map((v, di) => (
-                            <td key={di} style={{ padding: "8px 10px", textAlign: "center" }}>
-                              <div style={{ fontSize: 16, fontWeight: 700, color: v > 0 ? deptColor : "#d1d5db" }}>{v || "-"}</div>
-                            </td>
-                          ))}
-                          <td style={{ padding: "8px 10px", textAlign: "center", background: "#eff6ff" }}>
-                            <div style={{ fontSize: 18, fontWeight: 800, color: memberWeekTotal > 0 ? "#1e40af" : "#d1d5db" }}>{memberWeekTotal}</div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            {/* Bảng lũy kế tuần theo chỉ tiêu */}
-            <ReportTable
-              dept={dept} metrics={dept.metrics} members={dept.members}
-              dayKeys={currentWeekDays} dailyData={dailyData}
-              monthKey={selectedMonth} deptColor={deptColor}
-              title={`Lũy kế theo chỉ tiêu · ${selectedWeek}`}
-              subtitle={`${dept.fullName} · ${monthLabel}`}
-            />
+            <ReportTable dept={dept} metrics={dept.metrics} members={dept.members} dayKeys={currentWeekDays} dailyData={dailyData} monthKey={selectedMonth} deptColor={deptColor} title={`Lũy kế ${selectedWeek} · ${monthLabel}`} subtitle={dept.fullName} />
           </div>
         )}
 
         {/* ── BÁO CÁO THÁNG ── */}
-        {activeTab === "monthly" && (
+        {!isSummary && activeTab === "monthly" && (
           <div>
-            {/* Tổng quan từng tuần */}
             <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", marginBottom: 16 }}>
               <div style={{ padding: "14px 20px", borderBottom: "1px solid #f3f4f6" }}>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>Tổng quan theo tuần · {monthLabel}</div>
@@ -904,23 +920,14 @@ export default function App() {
                   <thead>
                     <tr style={{ background: "#f9fafb" }}>
                       <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #e5e7eb", minWidth: 160 }}>Thành viên</th>
-                      {WEEKS.map(w => (
-                        <th key={w} style={{ padding: "10px 10px", textAlign: "center", borderBottom: "1px solid #e5e7eb", minWidth: 90 }}>
-                          <div style={{ fontWeight: 600, color: "#374151", fontSize: 12 }}>{w}</div>
-                        </th>
-                      ))}
-                      <th style={{ padding: "10px 10px", textAlign: "center", borderBottom: "1px solid #e5e7eb", background: "#f5f3ff", minWidth: 90 }}>
-                        <div style={{ fontWeight: 700, color: "#7c3aed" }}>Tổng tháng</div>
-                      </th>
+                      {WEEKS.map(w => <th key={w} style={{ padding: "10px 10px", textAlign: "center", borderBottom: "1px solid #e5e7eb", minWidth: 90 }}><div style={{ fontWeight: 600, color: "#374151", fontSize: 12 }}>{w}</div></th>)}
+                      <th style={{ padding: "10px 10px", textAlign: "center", borderBottom: "1px solid #e5e7eb", background: "#f5f3ff", minWidth: 90 }}><div style={{ fontWeight: 700, color: "#7c3aed" }}>Tổng tháng</div></th>
                     </tr>
                   </thead>
                   <tbody>
                     {dept.members.map((mb, mi) => {
-                      const weekTotals = WEEKS.map(w => {
-                        const wDays = daysOfWeek(w);
-                        return dept.metrics.reduce((sum, m) => sum + sumMetrics(dailyData, activeDept, selectedMonth, mb.id, wDays, m.key), 0);
-                      });
-                      const memberMonthTotal = weekTotals.reduce((a, b) => a + b, 0);
+                      const weekTotals = WEEKS.map(w => dept.metrics.reduce((sum, m) => sum + sumMetrics(dailyData, activeDept, selectedMonth, mb.id, daysOfWeek(w), m.key), 0));
+                      const total = weekTotals.reduce((a, b) => a + b, 0);
                       return (
                         <tr key={mb.id} style={{ background: mi % 2 === 0 ? "#fff" : "#fafafa", borderBottom: "1px solid #f3f4f6" }}>
                           <td style={{ padding: "10px 16px" }}>
@@ -933,7 +940,7 @@ export default function App() {
                             </td>
                           ))}
                           <td style={{ padding: "8px 10px", textAlign: "center", background: "#f5f3ff" }}>
-                            <div style={{ fontSize: 18, fontWeight: 800, color: memberMonthTotal > 0 ? "#7c3aed" : "#d1d5db" }}>{memberMonthTotal}</div>
+                            <div style={{ fontSize: 18, fontWeight: 800, color: total > 0 ? "#7c3aed" : "#d1d5db" }}>{total}</div>
                           </td>
                         </tr>
                       );
@@ -942,30 +949,25 @@ export default function App() {
                 </table>
               </div>
             </div>
-            {/* Bảng lũy kế tháng theo chỉ tiêu */}
-            <ReportTable
-              dept={dept} metrics={dept.metrics} members={dept.members}
-              dayKeys={currentMonthDays} dailyData={dailyData}
-              monthKey={selectedMonth} deptColor={deptColor}
-              title={`Lũy kế theo chỉ tiêu · ${monthLabel}`}
-              subtitle={dept.fullName}
-            />
+            <ReportTable dept={dept} metrics={dept.metrics} members={dept.members} dayKeys={currentMonthDays} dailyData={dailyData} monthKey={selectedMonth} deptColor={deptColor} title={`Lũy kế theo chỉ tiêu · ${monthLabel}`} subtitle={dept.fullName} />
           </div>
         )}
 
         {/* ── THÀNH VIÊN ── */}
-        {activeTab === "members" && (
+        {!isSummary && activeTab === "members" && (
           <div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginBottom: 16 }}>
-              <button onClick={() => setConfirmDeleteDept(activeDept)}
-                style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", borderRadius: 9, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                🗑 Xóa phòng này
-              </button>
-              <button onClick={() => { setNewMemberForm({ name: "", role: activeDept === "QTTD" ? "LS" : "UB" }); setShowAddModal(true); }}
-                style={{ background: deptColor, color: "#fff", border: "none", borderRadius: 9, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                ＋ Thêm nhân viên
-              </button>
-            </div>
+            {canManage && (
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginBottom: 16 }}>
+                <button onClick={() => setConfirmDeleteDept(activeDept)}
+                  style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", borderRadius: 9, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                  🗑 Xóa phòng này
+                </button>
+                <button onClick={() => { setNewMemberForm({ name: "", role: activeDept === "QTTD" ? "LS" : "UB" }); setShowAddModal(true); }}
+                  style={{ background: deptColor, color: "#fff", border: "none", borderRadius: 9, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                  ＋ Thêm nhân viên
+                </button>
+              </div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
               {dept.members.map((member, mi) => {
                 const monthTotal = dept.metrics.reduce((sum, m) => sum + sumMetrics(dailyData, activeDept, selectedMonth, member.id, currentMonthDays, m.key), 0);
@@ -973,10 +975,12 @@ export default function App() {
                 return (
                   <div key={member.id} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 20, cursor: "pointer", position: "relative" }}
                     onClick={() => setSelectedMember(selectedMember === member.id ? null : member.id)}>
-                    <button onClick={e => { e.stopPropagation(); setConfirmDelete(member.id); }}
-                      style={{ position: "absolute", top: 12, right: 12, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 7, padding: "3px 9px", fontSize: 12, color: "#dc2626", cursor: "pointer", fontWeight: 600 }}>
-                      🗑 Xóa
-                    </button>
+                    {canManage && (
+                      <button onClick={e => { e.stopPropagation(); setConfirmDelete(member.id); }}
+                        style={{ position: "absolute", top: 12, right: 12, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 7, padding: "3px 9px", fontSize: 12, color: "#dc2626", cursor: "pointer", fontWeight: 600 }}>
+                        🗑 Xóa
+                      </button>
+                    )}
                     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
                       <div style={{ width: 44, height: 44, borderRadius: "50%", background: deptColor, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 16, flexShrink: 0 }}>
                         {member.name.split(" ").pop()[0]}
@@ -1022,13 +1026,12 @@ export default function App() {
         )}
 
         {/* ── NHẬP LIỆU ── */}
-        {activeTab === "entry" && (
+        {!isSummary && activeTab === "entry" && canEdit(activeDept) && (
           <div>
             <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, marginBottom: 16 }}>
               <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Nhập số liệu theo ngày · {monthLabel}</div>
               <div style={{ color: "#6b7280", fontSize: 13 }}>Chọn tuần và ngày, sau đó chọn thành viên để nhập. Dữ liệu đồng bộ Firebase ngay lập tức 🔥</div>
             </div>
-            {/* Chọn tuần */}
             <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
               {WEEKS.map(w => (
                 <button key={w} onClick={() => setSelectedWeek(w)}
@@ -1037,7 +1040,6 @@ export default function App() {
                 </button>
               ))}
             </div>
-            {/* Chọn ngày */}
             <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
               {DAYS_OF_WEEK.map((d, i) => (
                 <button key={d} onClick={() => setSelectedDay(d)}
@@ -1046,18 +1048,17 @@ export default function App() {
                 </button>
               ))}
             </div>
-            {/* Danh sách thành viên */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
               {dept.members.map(m => {
                 const dk = makeDayKey(selectedWeek, selectedDay);
                 const hasData = dept.metrics.some(met => {
                   const v = dailyData[activeDept]?.[selectedMonth]?.[m.id]?.[dk]?.[met.key];
-                  return v !== undefined && v > 0;
+                  return v && (v.th > 0 || v.kh > 0);
                 });
                 const dayTotal = dept.metrics.reduce((sum, met) => sum + sumMetrics(dailyData, activeDept, selectedMonth, m.id, [dk], met.key), 0);
                 return (
                   <div key={m.id} onClick={() => openEntryModal(m.id)}
-                    style={{ background: "#fff", border: `2px solid ${hasData ? deptColor : "#e5e7eb"}`, borderRadius: 12, padding: 16, cursor: "pointer", transition: "all 0.2s", position: "relative" }}>
+                    style={{ background: "#fff", border: `2px solid ${hasData ? deptColor : "#e5e7eb"}`, borderRadius: 12, padding: 16, cursor: "pointer", position: "relative" }}>
                     {hasData && <div style={{ position: "absolute", top: 10, right: 10, width: 8, height: 8, borderRadius: "50%", background: "#057a55" }} />}
                     <div style={{ width: 40, height: 40, borderRadius: "50%", background: hasData ? deptColor : "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", color: hasData ? "#fff" : "#9ca3af", fontWeight: 800, marginBottom: 10 }}>
                       {m.name.split(" ").pop()[0]}
@@ -1065,9 +1066,7 @@ export default function App() {
                     <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{m.name}</div>
                     <Badge role={m.role} />
                     <div style={{ marginTop: 8, fontSize: 12 }}>
-                      {hasData
-                        ? <span style={{ color: "#057a55", fontWeight: 600 }}>✓ Tổng: {dayTotal}</span>
-                        : <span style={{ color: "#9ca3af" }}>Nhấp để nhập</span>}
+                      {hasData ? <span style={{ color: "#057a55", fontWeight: 600 }}>✓ Tổng: {dayTotal}</span> : <span style={{ color: "#9ca3af" }}>Nhấp để nhập</span>}
                     </div>
                   </div>
                 );
@@ -1088,8 +1087,6 @@ export default function App() {
               </div>
               <button onClick={() => setShowEntryModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}>✕</button>
             </div>
-
-            {/* Chọn tuần trong modal */}
             <div style={{ padding: "12px 24px 0", display: "flex", gap: 4, flexWrap: "wrap" }}>
               {WEEKS.map(w => (
                 <button key={w} onClick={() => switchEntryDay(w, entryDay)}
@@ -1098,7 +1095,6 @@ export default function App() {
                 </button>
               ))}
             </div>
-            {/* Chọn ngày trong modal */}
             <div style={{ padding: "8px 24px 0", display: "flex", gap: 4, flexWrap: "wrap" }}>
               {DAYS_OF_WEEK.map((d, i) => (
                 <button key={d} onClick={() => switchEntryDay(entryWeek, d)}
@@ -1107,47 +1103,38 @@ export default function App() {
                 </button>
               ))}
             </div>
-
             <div style={{ padding: "16px 24px" }}>
               <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14, background: "#f8fafc", padding: "8px 12px", borderRadius: 8 }}>
                 📅 Đang nhập: <strong>{entryWeek} · {entryDay}</strong> · {monthLabel}
               </div>
-              {/* Header cột */}
               <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", minWidth: 160, flex: 2 }}>Chỉ tiêu</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", flex: 2 }}>Chỉ tiêu</div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#1e40af", flex: 1, textAlign: "center" }}>Kế hoạch</div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#057a55", flex: 1, textAlign: "center" }}>Thực hiện</div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#7c3aed", flex: 1, textAlign: "center" }}>% HT</div>
               </div>
               {dept.metrics.map(metric => {
-                const kh = Number(entryForm[metric.key + "_kh"]) || 0;
-                const th = Number(entryForm[metric.key + "_th"]) || 0;
+                const kh  = Number(entryForm[metric.key + "_kh"]) || 0;
+                const th  = Number(entryForm[metric.key + "_th"]) || 0;
                 const pct = kh > 0 ? Math.round(th / kh * 100) : (th > 0 ? 100 : 0);
-                const pctColor = pct >= 100 ? "#057a55" : pct >= 80 ? "#c27803" : "#c81e1e";
+                const pctC = pct >= 100 ? "#057a55" : pct >= 80 ? "#c27803" : "#c81e1e";
                 return (
                   <div key={metric.key} style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 5 }}>
                       {metric.label} <span style={{ color: "#9ca3af", fontWeight: 400 }}>({metric.unit})</span>
                     </div>
                     <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                      {/* Kế hoạch */}
                       <div style={{ flex: 1 }}>
-                        <input type="number" min="0"
-                          value={entryForm[metric.key + "_kh"] || ""}
+                        <input type="number" min="0" value={entryForm[metric.key + "_kh"] || ""}
                           onChange={e => setEntryForm(p => ({ ...p, [metric.key + "_kh"]: e.target.value }))}
-                          style={{ width: "100%", padding: "8px 10px", border: "1px solid #bfdbfe", borderRadius: 8, fontSize: 14, boxSizing: "border-box", background: "#eff6ff", color: "#1e40af", fontWeight: 600, textAlign: "center" }}
-                          placeholder="0" />
+                          style={{ width: "100%", padding: "8px 10px", border: "1px solid #bfdbfe", borderRadius: 8, fontSize: 14, boxSizing: "border-box", background: "#eff6ff", color: "#1e40af", fontWeight: 600, textAlign: "center" }} placeholder="0" />
                       </div>
-                      {/* Thực hiện */}
                       <div style={{ flex: 1 }}>
-                        <input type="number" min="0"
-                          value={entryForm[metric.key + "_th"] || ""}
+                        <input type="number" min="0" value={entryForm[metric.key + "_th"] || ""}
                           onChange={e => setEntryForm(p => ({ ...p, [metric.key + "_th"]: e.target.value }))}
-                          style={{ width: "100%", padding: "8px 10px", border: "1px solid #a7f3d0", borderRadius: 8, fontSize: 14, boxSizing: "border-box", background: "#f0fdf4", color: "#057a55", fontWeight: 600, textAlign: "center" }}
-                          placeholder="0" />
+                          style={{ width: "100%", padding: "8px 10px", border: "1px solid #a7f3d0", borderRadius: 8, fontSize: 14, boxSizing: "border-box", background: "#f0fdf4", color: "#057a55", fontWeight: 600, textAlign: "center" }} placeholder="0" />
                       </div>
-                      {/* % HT */}
-                      <div style={{ flex: 1, padding: "8px 10px", background: "#f5f3ff", borderRadius: 8, textAlign: "center", fontWeight: 700, fontSize: 14, color: pctColor }}>
+                      <div style={{ flex: 1, padding: "8px 10px", background: "#f5f3ff", borderRadius: 8, textAlign: "center", fontWeight: 700, fontSize: 14, color: pctC }}>
                         {kh > 0 || th > 0 ? pct + "%" : "-"}
                       </div>
                     </div>
@@ -1155,7 +1142,6 @@ export default function App() {
                 );
               })}
             </div>
-
             <div style={{ padding: "14px 24px", borderTop: "1px solid #e5e7eb", display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button onClick={() => setShowEntryModal(false)} style={{ padding: "10px 20px", border: "1px solid #e5e7eb", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>Hủy</button>
               <button onClick={saveEntry} disabled={saving}
@@ -1168,7 +1154,7 @@ export default function App() {
       )}
 
       {/* ══ MODAL THÊM NHÂN VIÊN ══ */}
-      {showAddModal && (
+      {showAddModal && canManage && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
           <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <div style={{ padding: "18px 24px", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between" }}>
@@ -1202,15 +1188,13 @@ export default function App() {
         </div>
       )}
 
-      {/* ══ MODAL XÁC NHẬN XÓA ══ */}
+      {/* ══ MODAL XÁC NHẬN XÓA THÀNH VIÊN ══ */}
       {confirmDelete && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
           <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 360, padding: 28, textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Xóa nhân viên?</div>
-            <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 12 }}>
-              Xóa <strong>{dept.members.find(m => m.id === confirmDelete)?.name}</strong>?
-            </div>
+            <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 12 }}>Xóa <strong>{dept.members.find(m => m.id === confirmDelete)?.name}</strong>?</div>
             <div style={{ color: "#dc2626", fontSize: 12, background: "#fef2f2", padding: "8px 12px", borderRadius: 8, marginBottom: 20 }}>
               Toàn bộ dữ liệu sẽ bị xóa vĩnh viễn khỏi Firebase.
             </div>
@@ -1223,7 +1207,7 @@ export default function App() {
       )}
 
       {/* ══ MODAL THÊM PHÒNG ══ */}
-      {showAddDeptModal && (
+      {showAddDeptModal && canManage && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
           <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 560, maxHeight: "92vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <div style={{ padding: "18px 24px", borderBottom: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1231,44 +1215,30 @@ export default function App() {
               <button onClick={() => setShowAddDeptModal(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}>✕</button>
             </div>
             <div style={{ padding: "20px 24px" }}>
-              {/* Tên phòng */}
-              <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 6 }}>Tên phòng (hiển thị trên tab) *</label>
-              <input type="text" value={newDeptForm.name}
-                onChange={e => setNewDeptForm(p => ({ ...p, name: e.target.value }))}
-                style={{ width: "100%", padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 9, fontSize: 14, boxSizing: "border-box", marginBottom: 14 }}
-                placeholder="Vd: PGD Cẩm Phả" autoFocus />
-
-              {/* Tên đầy đủ */}
+              <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 6 }}>Tên phòng *</label>
+              <input type="text" value={newDeptForm.name} onChange={e => setNewDeptForm(p => ({ ...p, name: e.target.value }))}
+                style={{ width: "100%", padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 9, fontSize: 14, boxSizing: "border-box", marginBottom: 14 }} placeholder="Vd: PGD Cẩm Phả" autoFocus />
               <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 6 }}>Tên đầy đủ</label>
-              <input type="text" value={newDeptForm.fullName}
-                onChange={e => setNewDeptForm(p => ({ ...p, fullName: e.target.value }))}
-                style={{ width: "100%", padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 9, fontSize: 14, boxSizing: "border-box", marginBottom: 14 }}
-                placeholder="Vd: Phòng Giao Dịch Cẩm Phả" />
-
-              {/* Màu */}
+              <input type="text" value={newDeptForm.fullName} onChange={e => setNewDeptForm(p => ({ ...p, fullName: e.target.value }))}
+                style={{ width: "100%", padding: "10px 14px", border: "1px solid #d1d5db", borderRadius: 9, fontSize: 14, boxSizing: "border-box", marginBottom: 14 }} placeholder="Vd: Phòng Giao Dịch Cẩm Phả" />
               <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 8 }}>Màu nhận diện</label>
               <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
                 {["#1a56db","#057a55","#9f1239","#6d28d9","#c27803","#0e7490","#9a3412","#1e3a5f"].map(c => (
                   <div key={c} onClick={() => setNewDeptForm(p => ({ ...p, color: c }))}
                     style={{ width: 32, height: 32, borderRadius: "50%", background: c, cursor: "pointer", border: newDeptForm.color === c ? "3px solid #111" : "3px solid transparent", boxSizing: "border-box" }} />
                 ))}
-                <input type="color" value={newDeptForm.color}
-                  onChange={e => setNewDeptForm(p => ({ ...p, color: e.target.value }))}
-                  style={{ width: 32, height: 32, borderRadius: "50%", border: "none", padding: 0, cursor: "pointer" }} title="Chọn màu tùy chỉnh" />
+                <input type="color" value={newDeptForm.color} onChange={e => setNewDeptForm(p => ({ ...p, color: e.target.value }))}
+                  style={{ width: 32, height: 32, borderRadius: "50%", border: "none", padding: 0, cursor: "pointer" }} />
               </div>
-
-              {/* Chỉ tiêu */}
               <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 8 }}>Chỉ tiêu đánh giá</label>
               {newDeptForm.metrics.map((m, i) => (
                 <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
                   <input type="text" value={m.label}
                     onChange={e => { const ms = [...newDeptForm.metrics]; ms[i] = { ...ms[i], label: e.target.value, key: e.target.value.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "") }; setNewDeptForm(p => ({ ...p, metrics: ms })); }}
-                    style={{ flex: 2, padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }}
-                    placeholder={`Chỉ tiêu ${i + 1}`} />
+                    style={{ flex: 2, padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} placeholder={`Chỉ tiêu ${i + 1}`} />
                   <input type="text" value={m.unit}
                     onChange={e => { const ms = [...newDeptForm.metrics]; ms[i] = { ...ms[i], unit: e.target.value }; setNewDeptForm(p => ({ ...p, metrics: ms })); }}
-                    style={{ flex: 1, padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }}
-                    placeholder="Đơn vị" />
+                    style={{ flex: 1, padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, boxSizing: "border-box" }} placeholder="Đơn vị" />
                   {newDeptForm.metrics.length > 1 && (
                     <button onClick={() => setNewDeptForm(p => ({ ...p, metrics: p.metrics.filter((_, j) => j !== i) }))}
                       style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 7, padding: "6px 10px", cursor: "pointer", color: "#dc2626", fontWeight: 700, fontSize: 14 }}>✕</button>
@@ -1297,9 +1267,7 @@ export default function App() {
           <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 380, padding: 28, textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Xóa phòng ban?</div>
-            <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 12 }}>
-              Xóa <strong>{departments.find(d => d.id === confirmDeleteDept)?.name}</strong>?
-            </div>
+            <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 12 }}>Xóa <strong>{departments.find(d => d.id === confirmDeleteDept)?.name}</strong>?</div>
             <div style={{ color: "#dc2626", fontSize: 12, background: "#fef2f2", padding: "10px 14px", borderRadius: 8, marginBottom: 20, lineHeight: 1.6 }}>
               Toàn bộ nhân viên và dữ liệu của phòng này sẽ bị xóa vĩnh viễn khỏi Firebase.
             </div>
@@ -1311,7 +1279,7 @@ export default function App() {
         </div>
       )}
 
-      {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}}
+      {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
     </div>
   );
 }
