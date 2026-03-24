@@ -596,6 +596,144 @@ export default function App() {
     setToast({ msg: `Đã xóa: ${name}` });
   }
 
+  // ── Export Excel ────────────────────────────────────────
+  function exportToExcel() {
+    // Load SheetJS từ CDN nếu chưa có
+    function doExport() {
+      const XLSX = window.XLSX;
+      const wb = XLSX.utils.book_new();
+      const monthLbl = MONTHS.find(m => m.key === selectedMonth)?.label || selectedMonth;
+
+      // Các phòng cần export: admin → tất cả, dept → chỉ phòng mình
+      const deptsToExport = isAdmin ? departments : departments.filter(d => d.id === currentUser.deptId);
+
+      deptsToExport.forEach(d => {
+        const rows = [];
+        const allDayKeys = daysOfMonth();
+
+        // Header row 1: tên phòng + tháng
+        rows.push([d.fullName + " · " + monthLbl]);
+        rows.push([]); // blank
+
+        // Header row: Thành viên | Vai trò | Tuần 1 (T2–T7 KH/TH) | ... | Tuần 5 | Tổng tháng
+        const header1 = ["Họ tên", "Vai trò"];
+        const header2 = ["", ""];
+        WEEKS.forEach(w => {
+          DAYS_OF_WEEK.forEach((day, di) => {
+            header1.push(w + " " + DAY_SHORT[di]);
+            header1.push("");
+          });
+          header1.push(w + " Tổng");
+          header1.push("");
+        });
+        header1.push("TỔNG THÁNG"); header1.push("");
+
+        WEEKS.forEach(w => {
+          DAYS_OF_WEEK.forEach(() => {
+            header2.push("KH"); header2.push("TH");
+          });
+          header2.push("KH"); header2.push("TH");
+        });
+        header2.push("KH"); header2.push("TH");
+
+        rows.push(header1);
+        rows.push(header2);
+
+        // Mỗi metric → 1 block section
+        d.metrics.forEach(metric => {
+          rows.push([]); // blank
+          rows.push([metric.label + " (" + metric.unit + ")"]); // section header
+
+          d.members.forEach(mb => {
+            const row = [mb.name, mb.role];
+            let monthKH = 0, monthTH = 0;
+            WEEKS.forEach(w => {
+              let weekKH = 0, weekTH = 0;
+              DAYS_OF_WEEK.forEach(day => {
+                const dk = makeDayKey(w, day);
+                const kh = Number(dailyData[d.id]?.[selectedMonth]?.[mb.id]?.[dk]?.[metric.key]?.kh || 0);
+                const th = Number(dailyData[d.id]?.[selectedMonth]?.[mb.id]?.[dk]?.[metric.key]?.th || 0);
+                row.push(kh || ""); row.push(th || "");
+                weekKH += kh; weekTH += th;
+              });
+              row.push(weekKH || ""); row.push(weekTH || "");
+              monthKH += weekKH; monthTH += weekTH;
+            });
+            row.push(monthKH || ""); row.push(monthTH || "");
+            rows.push(row);
+          });
+
+          // Tổng phòng cho metric này
+          const totalRow = ["TỔNG PHÒNG", ""];
+          let mKH = 0, mTH = 0;
+          WEEKS.forEach(w => {
+            let wKH = 0, wTH = 0;
+            DAYS_OF_WEEK.forEach(day => {
+              const dk = makeDayKey(w, day);
+              let dkh = 0, dth = 0;
+              d.members.forEach(mb => {
+                dkh += Number(dailyData[d.id]?.[selectedMonth]?.[mb.id]?.[dk]?.[metric.key]?.kh || 0);
+                dth += Number(dailyData[d.id]?.[selectedMonth]?.[mb.id]?.[dk]?.[metric.key]?.th || 0);
+              });
+              totalRow.push(dkh || ""); totalRow.push(dth || "");
+              wKH += dkh; wTH += dth;
+            });
+            totalRow.push(wKH || ""); totalRow.push(wTH || "");
+            mKH += wKH; mTH += wTH;
+          });
+          totalRow.push(mKH || ""); totalRow.push(mTH || "");
+          rows.push(totalRow);
+        });
+
+        // Tạo sheet
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        // Độ rộng cột
+        const cols = [{ wch: 24 }, { wch: 7 }];
+        WEEKS.forEach(() => { DAYS_OF_WEEK.forEach(() => { cols.push({ wch: 6 }); cols.push({ wch: 6 }); }); cols.push({ wch: 7 }); cols.push({ wch: 7 }); });
+        cols.push({ wch: 8 }); cols.push({ wch: 8 });
+        ws["!cols"] = cols;
+
+        const sheetName = d.name.replace(/[\\/:*?[\]]/g, "").slice(0, 31);
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      });
+
+      // Sheet Tổng hợp: tổng từng phòng theo từng tháng (admin only)
+      if (isAdmin) {
+        const sumRows = [["TỔNG HỢP HIỆU SUẤT · " + monthLbl], []];
+        sumRows.push(["Phòng / Đơn vị", "Số NV", ...WEEKS.map(w => w + " (TH)"), "Tổng tháng (TH)"]);
+        departments.forEach(d => {
+          const row = [d.name, d.members.length];
+          let total = 0;
+          WEEKS.forEach(w => {
+            const wDays = daysOfWeek(w);
+            let wSum = 0;
+            d.members.forEach(mb => d.metrics.forEach(met => { wSum += sumMetrics(dailyData, d.id, selectedMonth, mb.id, wDays, met.key); }));
+            row.push(wSum); total += wSum;
+          });
+          row.push(total);
+          sumRows.push(row);
+        });
+        const wsSummary = XLSX.utils.aoa_to_sheet(sumRows);
+        wsSummary["!cols"] = [{ wch: 22 }, { wch: 7 }, ...WEEKS.map(() => ({ wch: 12 })), { wch: 14 }];
+        XLSX.utils.book_append_sheet(wb, wsSummary, "Tổng hợp");
+      }
+
+      const filename = "RBT_" + (isAdmin ? "TatCaPhong" : currentUser.label.replace(/\s/g, "")) + "_" + selectedMonth + ".xlsx";
+      XLSX.writeFile(wb, filename);
+      setToast({ msg: "Đã xuất: " + filename });
+    }
+
+    if (window.XLSX) {
+      doExport();
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      script.onload = doExport;
+      script.onerror = () => setToast({ msg: "Không tải được thư viện Excel", type: "error" });
+      document.head.appendChild(script);
+    }
+  }
+
   // ── Guard: show login if not authenticated ──────────────
   if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
 
@@ -717,6 +855,16 @@ export default function App() {
           </div>
         )}
 
+        {/* Export button */}
+        {!isSummary && (
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12, marginTop: -12 }}>
+            <button onClick={exportToExcel}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 9, padding: "7px 16px", fontSize: 13, fontWeight: 700, color: "#16a34a", cursor: "pointer" }}>
+              📥 Xuất Excel · {MONTHS.find(m => m.key === selectedMonth)?.label}
+            </button>
+          </div>
+        )}
+
         {/* Stat cards */}
         {!isSummary && (
           <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
@@ -732,13 +880,19 @@ export default function App() {
           const roles = ["LS", "UB"];
           return (
             <div>
-              <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 4, width: "fit-content", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+                <div style={{ display: "flex", gap: 4, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: 4, flexWrap: "wrap" }}>
                 {[{ key: "month", label: "📈 Lũy kế tháng" }, { key: "week", label: "📊 Lũy kế tuần" }, { key: "day", label: "📋 Theo ngày" }].map(m => (
                   <button key={m.key} onClick={() => setSummaryMode(m.key)}
                     style={{ background: summaryMode === m.key ? "#f59e0b" : "transparent", color: summaryMode === m.key ? "#fff" : "#6b7280", border: "none", cursor: "pointer", borderRadius: 7, padding: "7px 16px", fontSize: 13, fontWeight: 600 }}>
                     {m.label}
                   </button>
                 ))}
+                </div>
+                <button onClick={exportToExcel}
+                  style={{ display: "flex", alignItems: "center", gap: 6, background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 9, padding: "7px 16px", fontSize: 13, fontWeight: 700, color: "#16a34a", cursor: "pointer" }}>
+                  📥 Xuất Excel · {MONTHS.find(m => m.key === selectedMonth)?.label}
+                </button>
               </div>
               {(summaryMode === "week" || summaryMode === "day") && (
                 <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
