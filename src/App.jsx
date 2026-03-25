@@ -1102,6 +1102,10 @@ export default function App() {
                 })()}
               </div>
             </div>
+            {/* Debug key display */}
+            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8, padding: "6px 12px", background: "#f1f5f9", borderRadius: 8, display: "inline-block" }}>
+              🔑 Key đang dùng: <strong>{currentDayKey}</strong> · Tháng: <strong>{selectedMonth}</strong>
+            </div>
             <ReportTable dept={dept} metrics={dept.metrics} members={dept.members} dayKeys={[currentDayKey]} dailyData={dailyData} monthKey={selectedMonth} deptColor={deptColor} title={`Báo cáo ngày · ${selectedWeek} · ${selectedDay}`} subtitle={`${dept.fullName} · ${monthLabel}`} />
           </div>
         )}
