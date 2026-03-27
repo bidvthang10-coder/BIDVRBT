@@ -943,7 +943,7 @@ export default function App() {
                   {WEEKS.map((w, wi) => {
                     const wi_ = getWeekInfo(selectedMonth, wi);
                     return (
-                      <button key={w} onClick={() => setSelectedWeek(w)}
+                      <button key={w} onClick={() => { setSelectedWeek(w); setSelectedDay("Thứ 2"); }}
                         style={{ background: selectedWeek === w ? "#f59e0b" : "#fff", color: selectedWeek === w ? "#fff" : "#374151", border: `1px solid ${selectedWeek === w ? "#f59e0b" : "#e5e7eb"}`, borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>
                         <div>{w}</div>
                         <div style={{ fontSize: 10, fontWeight: 400, opacity: 0.8, marginTop: 1 }}>{wi_.dateRange}</div>
@@ -1081,7 +1081,7 @@ export default function App() {
                 {WEEKS.map((w, wi) => {
                   const wi_ = getWeekInfo(selectedMonth, wi);
                   return (
-                    <button key={w} onClick={() => setSelectedWeek(w)}
+                    <button key={w} onClick={() => { setSelectedWeek(w); setSelectedDay("Thứ 2"); }}
                       style={{ background: selectedWeek === w ? deptColor : "#f3f4f6", color: selectedWeek === w ? "#fff" : "#374151", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>
                       <div>{w}</div>
                       <div style={{ fontSize: 10, fontWeight: 400, opacity: 0.8, marginTop: 1 }}>{wi_.dateRange}</div>
@@ -1102,10 +1102,6 @@ export default function App() {
                 })()}
               </div>
             </div>
-            {/* Debug key display */}
-            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8, padding: "6px 12px", background: "#f1f5f9", borderRadius: 8, display: "inline-block" }}>
-              🔑 Key đang dùng: <strong>{currentDayKey}</strong> · Tháng: <strong>{selectedMonth}</strong>
-            </div>
             <ReportTable dept={dept} metrics={dept.metrics} members={dept.members} dayKeys={[currentDayKey]} dailyData={dailyData} monthKey={selectedMonth} deptColor={deptColor} title={`Báo cáo ngày · ${selectedWeek} · ${selectedDay}`} subtitle={`${dept.fullName} · ${monthLabel}`} />
           </div>
         )}
@@ -1117,7 +1113,7 @@ export default function App() {
               {WEEKS.map((w, wi) => {
                 const wi_ = getWeekInfo(selectedMonth, wi);
                 return (
-                  <button key={w} onClick={() => setSelectedWeek(w)}
+                  <button key={w} onClick={() => { setSelectedWeek(w); setSelectedDay("Thứ 2"); }}
                     style={{ background: selectedWeek === w ? deptColor : "#fff", color: selectedWeek === w ? "#fff" : "#374151", border: `1px solid ${selectedWeek === w ? deptColor : "#e5e7eb"}`, borderRadius: 8, padding: "7px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>
                     <div>{w}</div>
                     <div style={{ fontSize: 11, fontWeight: 400, opacity: 0.75, marginTop: 2 }}>{wi_.dateRange}</div>
@@ -1258,7 +1254,7 @@ export default function App() {
               {WEEKS.map((w, wi) => {
                 const wi_ = getWeekInfo(selectedMonth, wi);
                 return (
-                  <button key={w} onClick={() => setSelectedWeek(w)}
+                  <button key={w} onClick={() => { setSelectedWeek(w); setSelectedDay("Thứ 2"); }}
                     style={{ background: selectedWeek === w ? deptColor : "#fff", color: selectedWeek === w ? "#fff" : "#374151", border: `1px solid ${selectedWeek === w ? deptColor : "#e5e7eb"}`, borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>
                     <div>{w}</div>
                     <div style={{ fontSize: 10, fontWeight: 400, opacity: 0.8, marginTop: 1 }}>{wi_.dateRange}</div>
